@@ -1,17 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-// PGN headers look like: [White "Magnus Carlsen"]
-// This regex captures whatever's inside the quotes for a given tag name.
 function extractPgnHeader(pgn: string, tag: string): string {
   const match = pgn.match(new RegExp(`\\[${tag}\\s+"([^"]*)"\\]`));
   return match ? match[1] : "";
 }
 
-// The backend's parser rejects header lines outright (it expects pure
-// movetext), so we strip any line starting with "[" before sending —
-// we only use headers client-side, for auto-filling the name fields.
 function stripPgnHeaders(pgn: string): string {
   return pgn
     .split("\n")
@@ -26,10 +22,8 @@ export default function Home() {
   const [blackPlayer, setBlackPlayer] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const router = useRouter();
 
-  // Runs on every keystroke/paste in the PGN textarea. We only auto-fill a
-  // name field if the user hasn't already typed something into it manually —
-  // otherwise pasting a new PGN would silently overwrite a name they just edited.
   function handlePgnChange(value: string) {
     setPgn(value);
     const parsedWhite = extractPgnHeader(value, "White");
@@ -58,9 +52,7 @@ export default function Home() {
         throw new Error(body?.message || `Server returned ${response.status}`);
       }
       const data = await response.json();
-      // Temporary — once we build the game view page, this becomes a redirect
-      // to /games/[id] instead of an alert.
-      alert(`Uploaded! Game ID: ${data.id}`);
+      router.push(`/games/${data.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -69,40 +61,40 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 p-8">
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-xl flex-col gap-4 rounded bg-white p-6 shadow"
-      >
-        <h1 className="text-xl font-semibold text-zinc-900">Upload Game</h1>
+    <div className="mx-auto w-full max-w-xl px-8 py-16">
+      <h1 className="mb-1 font-serif text-3xl text-foreground">Upload a game</h1>
+      <p className="mb-8 text-sm text-foreground/60">
+        Paste a PGN below. We'll parse it and queue it for Stockfish analysis.
+      </p>
 
-        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-900">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+        <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
           PGN
           <textarea
             value={pgn}
             onChange={(e) => handlePgnChange(e.target.value)}
             rows={8}
             required
-            className="rounded border border-zinc-300 p-2 font-mono text-sm text-zinc-900"
+            className="border border-hairline bg-background p-3 font-mono text-sm text-foreground focus:border-board focus:outline-none"
             placeholder='[White "Player 1"]&#10;[Black "Player 2"]&#10;&#10;1. e4 e5 2. Nf3 ...'
           />
         </label>
 
-        <div className="flex gap-4">
-          <label className="flex flex-1 flex-col gap-1 text-sm font-medium text-zinc-900">
+        <div className="flex gap-6">
+          <label className="flex flex-1 flex-col gap-2 text-sm font-medium text-foreground">
             White
             <input
               value={whitePlayer}
               onChange={(e) => setWhitePlayer(e.target.value)}
-              className="rounded border border-zinc-300 p-2 text-zinc-900"
+              className="border border-hairline bg-background p-2 text-foreground focus:border-board focus:outline-none"
             />
           </label>
-          <label className="flex flex-1 flex-col gap-1 text-sm font-medium text-zinc-900">
+          <label className="flex flex-1 flex-col gap-2 text-sm font-medium text-foreground">
             Black
             <input
               value={blackPlayer}
               onChange={(e) => setBlackPlayer(e.target.value)}
-              className="rounded border border-zinc-300 p-2 text-zinc-900"
+              className="border border-hairline bg-background p-2 text-foreground focus:border-board focus:outline-none"
             />
           </label>
         </div>
@@ -110,12 +102,12 @@ export default function Home() {
         <button
           type="submit"
           disabled={submitting}
-          className="rounded bg-black px-4 py-2 text-white disabled:opacity-50"
+          className="self-start bg-board px-6 py-2 text-sm font-medium text-white hover:bg-board-dark disabled:opacity-50"
         >
-          {submitting ? "Uploading..." : "Upload Game"}
+          {submitting ? "Uploading…" : "Upload game"}
         </button>
 
-        {error && <p className="text-sm text-red-600">Error: {error}</p>}
+        {error && <p className="text-sm text-red-700">{error}</p>}
       </form>
     </div>
   );
