@@ -30,12 +30,15 @@ type ReportEntry = {
   classification: "NONE" | "INACCURACY" | "MISTAKE" | "BLUNDER" | "PENDING";
 };
 
-const CLASSIFICATION_COLORS: Record<ReportEntry["classification"], string> = {
-  NONE: "text-zinc-400",
-  INACCURACY: "text-yellow-600",
-  MISTAKE: "text-orange-600",
-  BLUNDER: "text-red-600",
-  PENDING: "text-zinc-400 italic",
+// Each classification maps to a left-border "tag" color (scoresheet-annotation
+// style) plus a matching text color — kept separate from the core brand
+// palette since these are functional/status colors, not identity colors.
+const CLASSIFICATION_STYLES: Record<ReportEntry["classification"], string> = {
+  NONE: "border-l-transparent text-foreground/40",
+  INACCURACY: "border-l-amber-600 text-amber-700",
+  MISTAKE: "border-l-orange-700 text-orange-700",
+  BLUNDER: "border-l-red-800 text-red-800",
+  PENDING: "border-l-transparent text-foreground/40 italic",
 };
 
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -50,11 +53,6 @@ export default function GamePage() {
   const [error, setError] = useState("");
   const [selectedPly, setSelectedPly] = useState(-1);
 
-  // Mirrors `report` into a ref so the polling effect below can read the
-  // *latest* value inside its setInterval callback without needing `report`
-  // in its dependency array. If we depended on `report` directly, every
-  // setReport() call would re-run this whole effect and fire an extra fetch
-  // immediately — which is exactly the runaway loop you just saw.
   const reportRef = useRef<ReportEntry[]>([]);
   useEffect(() => {
     reportRef.current = report;
@@ -78,9 +76,6 @@ export default function GamePage() {
       .catch((err) => setError(err.message));
   }, [gameId]);
 
-  // Runs once per gameId. Fetches immediately, then polls every 2s ONLY
-  // while reportRef.current still has a PENDING entry, checked fresh at
-  // each tick — not tied to React's render/effect cycle at all.
   useEffect(() => {
     let cancelled = false;
 
@@ -100,12 +95,16 @@ export default function GamePage() {
     }
 
     fetchReport();
+    let pollCount = 0;
+    const MAX_POLLS = 30;
     const intervalId = setInterval(() => {
+      pollCount++;
       const stillPending = reportRef.current.some((r) => r.classification === "PENDING");
-      if (stillPending) {
+      if (stillPending && pollCount < MAX_POLLS) {
         fetchReport();
       } else {
         clearInterval(intervalId);
+        if (stillPending) setError("Analysis is taking longer than expected. Refresh to check again.");
       }
     }, 2000);
 
@@ -115,59 +114,58 @@ export default function GamePage() {
     };
   }, [gameId]);
 
-  if (error) return <p className="min-h-screen bg-zinc-50 p-8 text-red-600">Error: {error}</p>;
-  if (!game) return <p className="min-h-screen bg-zinc-50 p-8 text-zinc-900">Loading...</p>;
+  if (error) return <p className="p-8 text-red-700">{error}</p>;
+  if (!game) return <p className="p-8 text-foreground">Loading…</p>;
 
   const anyPending = report.some((r) => r.classification === "PENDING");
   const currentFen = selectedPly === -1 ? STARTING_FEN : moves[selectedPly]?.fenAfter ?? STARTING_FEN;
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-8 text-zinc-900">
-      <h1 className="text-xl font-semibold">
+    <div className="px-8 py-12">
+      <h1 className="font-serif text-2xl text-foreground">
         {game.whitePlayer} vs {game.blackPlayer}
       </h1>
-      <p className="mb-6 text-sm text-zinc-600">
-        Result: {game.result} — Uploaded: {game.uploadedAt}
+      <p className="mb-8 text-sm text-foreground/60">
+        {game.result} · {new Date(game.uploadedAt).toLocaleString()}
       </p>
 
-      <div className="flex items-start gap-8">
+      <div className="flex items-start gap-12">
         <div className="aspect-square w-[400px] shrink-0">
           <Chessboard options={{ position: currentFen }} />
         </div>
 
-        <div className="flex-1">
+        <div className="max-w-md flex-1">
           {anyPending && (
-            <p className="mb-2 text-sm italic text-zinc-500">
-              Analysis in progress — updating automatically...
+            <p className="mb-3 text-sm italic text-foreground/50">
+              Analysis in progress — updating automatically…
             </p>
           )}
 
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-zinc-500">
-                <th className="py-1">#</th>
-                <th>Move</th>
-                <th>Classification</th>
-                <th>CP Loss</th>
+              <tr className="border-b border-hairline text-left text-foreground/50">
+                <th className="py-2 font-medium">#</th>
+                <th className="font-medium">Move</th>
+                <th className="font-medium">Classification</th>
+                <th className="font-medium">CP loss</th>
               </tr>
             </thead>
             <tbody>
               {moves.map((move, index) => {
                 const reportEntry = report.find((r) => r.plyNumber === move.plyNumber);
+                const classification = reportEntry?.classification ?? "PENDING";
                 return (
                   <tr
                     key={move.id}
                     onClick={() => setSelectedPly(index)}
-                    className={`cursor-pointer border-b hover:bg-zinc-100 ${
-                      selectedPly === index ? "bg-zinc-200" : ""
+                    className={`cursor-pointer border-b border-hairline border-l-4 ${CLASSIFICATION_STYLES[classification]} ${
+                      selectedPly === index ? "bg-brass/20" : "hover:bg-hairline/30"
                     }`}
                   >
-                    <td className="py-1">{move.plyNumber}</td>
-                    <td className="font-mono">{move.san}</td>
-                    <td className={CLASSIFICATION_COLORS[reportEntry?.classification ?? "PENDING"]}>
-                      {reportEntry?.classification ?? "PENDING"}
-                    </td>
-                    <td>{reportEntry?.centipawnLoss ?? "-"}</td>
+                    <td className="py-2 pl-2 text-foreground/60">{move.plyNumber}</td>
+                    <td className="font-mono text-foreground">{move.san}</td>
+                    <td>{classification}</td>
+                    <td className="text-foreground/70">{reportEntry?.centipawnLoss ?? "–"}</td>
                   </tr>
                 );
               })}
