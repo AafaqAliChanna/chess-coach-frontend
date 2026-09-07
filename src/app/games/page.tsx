@@ -26,36 +26,40 @@ export default function GamesListPage() {
       .catch((err) => setError(err.message));
   }, []);
 
-  if (error) return <p className="p-8 text-red-600">Error: {error}</p>;
-  if (!games) return <p className="p-8 text-stone-900">Loading...</p>;
+  if (error) return <p className="p-8 text-red-700">{error}</p>;
+  if (!games) return <p className="p-8 text-foreground">Loading…</p>;
 
   return (
-    <div className="p-8">
-      <h1 className="mb-6 text-xl font-semibold text-stone-900">My Games</h1>
+    <div className="mx-auto w-full max-w-2xl px-8 py-16">
+      <h1 className="mb-8 font-serif text-3xl text-foreground">My games</h1>
 
       {games.length === 0 ? (
-        <p className="text-stone-600">
-          No games uploaded yet. <Link href="/" className="underline">Upload one</Link>.
+        <p className="text-foreground/60">
+          No games uploaded yet.{" "}
+          <Link href="/" className="text-board underline">
+            Upload one
+          </Link>
+          .
         </p>
       ) : (
-        <table className="w-full max-w-2xl text-sm">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="border-b text-left text-stone-500">
-              <th className="py-2">Players</th>
-              <th>Result</th>
-              <th>Uploaded</th>
+            <tr className="border-b border-hairline text-left text-foreground/50">
+              <th className="py-2 font-medium">Players</th>
+              <th className="font-medium">Result</th>
+              <th className="font-medium">Uploaded</th>
             </tr>
           </thead>
           <tbody>
             {games.map((game) => (
-              <tr key={game.id} className="border-b hover:bg-stone-100">
-                <td className="py-2">
-                  <Link href={`/games/${game.id}`} className="text-stone-900 underline">
+              <tr key={game.id} className="border-b border-hairline">
+                <td className="py-3">
+                  <Link href={`/games/${game.id}`} className="text-board hover:text-board-dark">
                     {game.whitePlayer} vs {game.blackPlayer}
                   </Link>
                 </td>
-                <td>{game.result}</td>
-                <td>{new Date(game.uploadedAt).toLocaleString()}</td>
+                <td className="font-mono text-foreground/70">{game.result}</td>
+                <td className="text-foreground/70">{new Date(game.uploadedAt).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
