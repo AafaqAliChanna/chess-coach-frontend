@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Source_Serif_4 } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 
@@ -13,6 +13,11 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
   title: "AI Chess Coach",
   description: "Upload your games and get Stockfish-powered move analysis.",
@@ -22,15 +27,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
-        <header className="border-b border-stone-200 bg-white px-8 py-4">
-          <nav className="flex gap-6 text-sm font-medium">
-            <Link href="/" className="text-stone-900 hover:text-stone-600">
+      <body className="flex min-h-full flex-col bg-background text-foreground">
+        <header className="border-b border-hairline px-8 py-4">
+          <nav className="flex items-center gap-6">
+            <span className="font-serif text-lg text-foreground">AI Chess Coach</span>
+            <Link href="/" className="text-sm text-foreground hover:text-board">
               Upload
             </Link>
-            <Link href="/games" className="text-stone-900 hover:text-stone-600">
+            <Link href="/games" className="text-sm text-foreground hover:text-board">
               My Games
             </Link>
           </nav>
