@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { API_BASE_URL } from "@/lib/api";
 
 function extractPgnHeader(pgn: string, tag: string): string {
   const match = pgn.match(new RegExp(`\\[${tag}\\s+"([^"]*)"\\]`));
@@ -18,6 +19,7 @@ function stripPgnHeaders(pgn: string): string {
 
 export default function Home() {
   const [pgn, setPgn] = useState("");
+  const [title, setTitle] = useState("");
   const [whitePlayer, setWhitePlayer] = useState("");
   const [blackPlayer, setBlackPlayer] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -37,11 +39,12 @@ export default function Home() {
     setSubmitting(true);
     setError("");
     try {
-      const response = await fetch("http://localhost:8080/api/games", {
+      const response = await fetch(`${API_BASE_URL}/api/games`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           pgn: stripPgnHeaders(pgn),
+          title: title || null,
           whitePlayer: whitePlayer || "White",
           blackPlayer: blackPlayer || "Black",
           result: "*",
@@ -68,6 +71,16 @@ export default function Home() {
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+        <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
+          Title <span className="font-normal text-foreground/50">(optional)</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. My Sunday blitz game"
+            className="border border-hairline bg-background p-2 text-foreground focus:border-board focus:outline-none"
+          />
+        </label>
+
         <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
           PGN
           <textarea
