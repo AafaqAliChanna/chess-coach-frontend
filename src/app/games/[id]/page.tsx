@@ -48,9 +48,6 @@ const CLASSIFICATION_SQUARE_COLOR: Record<ReportEntry["classification"], string 
   PENDING: null,
 };
 
-// Standard chess annotation symbols (Nunn convention) — not tied to any
-// site's proprietary icon set, just the classic "?!", "?", "??" notation
-// used in chess literature for a century-plus.
 const CLASSIFICATION_BADGE: Record<ReportEntry["classification"], { symbol: string; color: string } | null> = {
   NONE: null,
   INACCURACY: { symbol: "?!", color: "#b45309" },
@@ -94,11 +91,6 @@ function getChangedSquares(fenBefore: string, fenAfter: string): string[] {
   return changed;
 }
 
-// Of the changed squares, prefer the one that now HAS a piece (the
-// destination) over one that's now empty (the origin) — this is what we
-// pin the badge to. Heuristic, not a full move parser: for castling this
-// picks whichever of king/rook destination squares comes first, which is
-// an acceptable simplification for a visual badge.
 function findDestinationSquare(fenAfter: string, changedSquares: string[]): string | null {
   const boardAfter = fenAfter.split(" ")[0];
   const ranks = boardAfter.split("/");
@@ -127,12 +119,6 @@ function squareToPixel(square: string): { left: number; top: number; size: numbe
   return { left: file * size, top: (8 - rank) * size, size };
 }
 
-// Approximates a 0-100 "accuracy" score from centipawn loss on a single
-// move. This is NOT chess.com's or Lichess's exact proprietary formula —
-// those aren't public — this is a commonly-used approximation with the
-// same general shape (small losses barely hurt, big losses crater the
-// score fast). Good enough for a relative sense of game quality, not
-// meant to be quoted as an authoritative number.
 function moveAccuracyFromCpLoss(centipawnLoss: number): number {
   const accuracy = 103.1668 * Math.exp(-0.04354 * centipawnLoss) - 3.1669;
   return Math.max(0, Math.min(100, accuracy));
@@ -149,6 +135,9 @@ export default function GamePage() {
   const [error, setError] = useState("");
   const [selectedPly, setSelectedPly] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
 
   const reportRef = useRef<ReportEntry[]>([]);
   useEffect(() => {
@@ -211,8 +200,6 @@ export default function GamePage() {
     };
   }, [gameId]);
 
-  // Autoplay: steps selectedPly forward on a timer while isPlaying is true.
-  // Stops itself automatically at the last move.
   useEffect(() => {
     if (!isPlaying) return;
     const intervalId = setInterval(() => {
@@ -261,6 +248,32 @@ export default function GamePage() {
     }
   }
 
+  function startEditingTitle() {
+    if (!game) return;
+    setTitleDraft(game.title || "");
+    setEditingTitle(true);
+  }
+
+  async function saveTitle() {
+    if (!game) return;
+    setSavingTitle(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: titleDraft || null }),
+      });
+      if (!response.ok) throw new Error(`Failed to save title: ${response.status}`);
+      const updated = await response.json();
+      setGame(updated);
+      setEditingTitle(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
   if (error) return <p className="p-8 text-red-700">{error}</p>;
   if (!game) return <p className="p-8 text-foreground">Loading…</p>;
 
@@ -294,8 +307,6 @@ export default function GamePage() {
     }
   }
 
-  // Approx. accuracy per side, averaged over that side's own moves only.
-  // White plays odd plyNumbers (1, 3, 5...), Black plays even (2, 4, 6...).
   const whiteAccuracies = report
     .filter((r) => r.plyNumber % 2 === 1 && r.classification !== "PENDING")
     .map((r) => moveAccuracyFromCpLoss(r.centipawnLoss));
@@ -310,9 +321,37 @@ export default function GamePage() {
     <div className="px-8 py-12">
       <div className="mb-8 flex items-start justify-between">
         <div>
-          <h1 className="font-serif text-2xl text-foreground">
-            {game.title || `${game.whitePlayer} vs ${game.blackPlayer}`}
-          </h1>
+          {editingTitle ? (
+            <div className="flex items-center gap-2">
+              <input
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                placeholder={`${game.whitePlayer} vs ${game.blackPlayer}`}
+                className="border border-hairline bg-background px-2 py-1 font-serif text-xl text-foreground focus:border-board focus:outline-none"
+                autoFocus
+              />
+              <button
+                onClick={saveTitle}
+                disabled={savingTitle}
+                className="text-xs text-board hover:underline disabled:opacity-50"
+              >
+                {savingTitle ? "Saving…" : "Save"}
+              </button>
+              <button onClick={() => setEditingTitle(false)} className="text-xs text-foreground/60 hover:underline">
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <h1 className="group font-serif text-2xl text-foreground">
+              {game.title || `${game.whitePlayer} vs ${game.blackPlayer}`}{" "}
+              <button
+                onClick={startEditingTitle}
+                className="text-xs font-sans text-foreground/40 hover:text-board hover:underline"
+              >
+                edit
+              </button>
+            </h1>
+          )}
           <p className="text-sm text-foreground/60">
             {game.result} · {new Date(game.uploadedAt).toLocaleString()}
           </p>
