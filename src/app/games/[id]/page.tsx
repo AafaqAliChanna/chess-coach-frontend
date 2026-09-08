@@ -48,8 +48,21 @@ const CLASSIFICATION_SQUARE_COLOR: Record<ReportEntry["classification"], string 
   PENDING: null,
 };
 
+// Standard chess annotation symbols (Nunn convention) — not tied to any
+// site's proprietary icon set, just the classic "?!", "?", "??" notation
+// used in chess literature for a century-plus.
+const CLASSIFICATION_BADGE: Record<ReportEntry["classification"], { symbol: string; color: string } | null> = {
+  NONE: null,
+  INACCURACY: { symbol: "?!", color: "#b45309" },
+  MISTAKE: { symbol: "?", color: "#c2410c" },
+  BLUNDER: { symbol: "??", color: "#991b1b" },
+  PENDING: null,
+};
+
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+const BOARD_SIZE_PX = 400;
+const AUTOPLAY_INTERVAL_MS = 800;
 
 function getChangedSquares(fenBefore: string, fenAfter: string): string[] {
   const boardBefore = fenBefore.split(" ")[0];
@@ -74,12 +87,55 @@ function getChangedSquares(fenBefore: string, fenAfter: string): string[] {
   for (let rankIndex = 0; rankIndex < 8; rankIndex++) {
     for (let fileIndex = 0; fileIndex < 8; fileIndex++) {
       if (ranksBefore[rankIndex][fileIndex] !== ranksAfter[rankIndex][fileIndex]) {
-        const square = `${FILES[fileIndex]}${8 - rankIndex}`;
-        changed.push(square);
+        changed.push(`${FILES[fileIndex]}${8 - rankIndex}`);
       }
     }
   }
   return changed;
+}
+
+// Of the changed squares, prefer the one that now HAS a piece (the
+// destination) over one that's now empty (the origin) — this is what we
+// pin the badge to. Heuristic, not a full move parser: for castling this
+// picks whichever of king/rook destination squares comes first, which is
+// an acceptable simplification for a visual badge.
+function findDestinationSquare(fenAfter: string, changedSquares: string[]): string | null {
+  const boardAfter = fenAfter.split(" ")[0];
+  const ranks = boardAfter.split("/");
+  function pieceAt(square: string): string {
+    const file = square.charCodeAt(0) - 97;
+    const rank = 8 - Number(square[1]);
+    let col = 0;
+    for (const char of ranks[rank]) {
+      if (/\d/.test(char)) {
+        col += Number(char);
+      } else {
+        if (col === file) return char;
+        col += 1;
+      }
+      if (col > file) break;
+    }
+    return "";
+  }
+  return changedSquares.find((sq) => pieceAt(sq) !== "") ?? null;
+}
+
+function squareToPixel(square: string): { left: number; top: number; size: number } {
+  const file = square.charCodeAt(0) - 97;
+  const rank = Number(square[1]);
+  const size = BOARD_SIZE_PX / 8;
+  return { left: file * size, top: (8 - rank) * size, size };
+}
+
+// Approximates a 0-100 "accuracy" score from centipawn loss on a single
+// move. This is NOT chess.com's or Lichess's exact proprietary formula —
+// those aren't public — this is a commonly-used approximation with the
+// same general shape (small losses barely hurt, big losses crater the
+// score fast). Good enough for a relative sense of game quality, not
+// meant to be quoted as an authoritative number.
+function moveAccuracyFromCpLoss(centipawnLoss: number): number {
+  const accuracy = 103.1668 * Math.exp(-0.04354 * centipawnLoss) - 3.1669;
+  return Math.max(0, Math.min(100, accuracy));
 }
 
 export default function GamePage() {
@@ -92,6 +148,7 @@ export default function GamePage() {
   const [report, setReport] = useState<ReportEntry[]>([]);
   const [error, setError] = useState("");
   const [selectedPly, setSelectedPly] = useState(-1);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const reportRef = useRef<ReportEntry[]>([]);
   useEffect(() => {
@@ -154,12 +211,30 @@ export default function GamePage() {
     };
   }, [gameId]);
 
+  // Autoplay: steps selectedPly forward on a timer while isPlaying is true.
+  // Stops itself automatically at the last move.
+  useEffect(() => {
+    if (!isPlaying) return;
+    const intervalId = setInterval(() => {
+      setSelectedPly((prev) => {
+        if (prev >= moves.length - 1) {
+          setIsPlaying(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, AUTOPLAY_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [isPlaying, moves.length]);
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "ArrowRight") {
+        setIsPlaying(false);
         setSelectedPly((prev) => Math.min(prev + 1, moves.length - 1));
       } else if (e.key === "ArrowLeft") {
+        setIsPlaying(false);
         setSelectedPly((prev) => Math.max(prev - 1, -1));
       }
     }
@@ -194,16 +269,42 @@ export default function GamePage() {
   const previousFen = selectedPly <= 0 ? STARTING_FEN : moves[selectedPly - 1]?.fenAfter ?? STARTING_FEN;
 
   const squareStyles: Record<string, React.CSSProperties> = {};
+  let badge: { left: number; top: number; size: number; symbol: string; color: string } | null = null;
+
   if (selectedPly >= 0) {
-    const currentReportEntry = report.find((r) => r.plyNumber === moves[selectedPly]?.plyNumber);
-    const color = currentReportEntry ? CLASSIFICATION_SQUARE_COLOR[currentReportEntry.classification] : null;
-    if (color) {
-      const changedSquares = getChangedSquares(previousFen, currentFen);
+    const currentMove = moves[selectedPly];
+    const currentReportEntry = report.find((r) => r.plyNumber === currentMove?.plyNumber);
+    const classification = currentReportEntry?.classification;
+    const squareColor = classification ? CLASSIFICATION_SQUARE_COLOR[classification] : null;
+    const changedSquares = getChangedSquares(previousFen, currentFen);
+
+    if (squareColor) {
       for (const square of changedSquares) {
-        squareStyles[square] = { backgroundColor: color };
+        squareStyles[square] = { backgroundColor: squareColor };
+      }
+    }
+
+    const badgeInfo = classification ? CLASSIFICATION_BADGE[classification] : null;
+    if (badgeInfo) {
+      const destSquare = findDestinationSquare(currentFen, changedSquares);
+      if (destSquare) {
+        const pixel = squareToPixel(destSquare);
+        badge = { ...pixel, ...badgeInfo };
       }
     }
   }
+
+  // Approx. accuracy per side, averaged over that side's own moves only.
+  // White plays odd plyNumbers (1, 3, 5...), Black plays even (2, 4, 6...).
+  const whiteAccuracies = report
+    .filter((r) => r.plyNumber % 2 === 1 && r.classification !== "PENDING")
+    .map((r) => moveAccuracyFromCpLoss(r.centipawnLoss));
+  const blackAccuracies = report
+    .filter((r) => r.plyNumber % 2 === 0 && r.classification !== "PENDING")
+    .map((r) => moveAccuracyFromCpLoss(r.centipawnLoss));
+  const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+  const whiteAccuracy = avg(whiteAccuracies);
+  const blackAccuracy = avg(blackAccuracies);
 
   return (
     <div className="px-8 py-12">
@@ -216,30 +317,66 @@ export default function GamePage() {
             {game.result} · {new Date(game.uploadedAt).toLocaleString()}
           </p>
         </div>
-        <button
-          onClick={handleDelete}
-          className="text-xs text-red-700 hover:underline"
-        >
+        <button onClick={handleDelete} className="text-xs text-red-700 hover:underline">
           Delete game
         </button>
       </div>
 
+      {!anyPending && (whiteAccuracy !== null || blackAccuracy !== null) && (
+        <div className="mb-8 flex gap-8 border-y border-hairline py-3 text-sm">
+          <p className="text-foreground">
+            {game.whitePlayer} approx. accuracy:{" "}
+            <span className="font-semibold">{whiteAccuracy !== null ? whiteAccuracy.toFixed(1) : "–"}%</span>
+          </p>
+          <p className="text-foreground">
+            {game.blackPlayer} approx. accuracy:{" "}
+            <span className="font-semibold">{blackAccuracy !== null ? blackAccuracy.toFixed(1) : "–"}%</span>
+          </p>
+        </div>
+      )}
+
       <div className="flex items-start gap-12">
         <div className="shrink-0">
-          <div className="aspect-square w-[400px]">
+          <div className="relative aspect-square w-[400px]">
             <Chessboard options={{ position: currentFen, squareStyles }} />
+            {badge && (
+              <div
+                className="pointer-events-none absolute flex items-center justify-center"
+                style={{ left: badge.left, top: badge.top, width: badge.size, height: badge.size }}
+              >
+                <span
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white shadow"
+                  style={{ backgroundColor: badge.color }}
+                >
+                  {badge.symbol}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 flex gap-2">
             <button
-              onClick={() => setSelectedPly((p) => Math.max(p - 1, -1))}
+              onClick={() => {
+                setIsPlaying(false);
+                setSelectedPly((p) => Math.max(p - 1, -1));
+              }}
               disabled={selectedPly === -1}
               className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
             >
               ← Prev
             </button>
             <button
-              onClick={() => setSelectedPly((p) => Math.min(p + 1, moves.length - 1))}
+              onClick={() => setIsPlaying((p) => !p)}
+              disabled={moves.length === 0}
+              className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
+            >
+              {isPlaying ? "⏸ Pause" : "▶ Play"}
+            </button>
+            <button
+              onClick={() => {
+                setIsPlaying(false);
+                setSelectedPly((p) => Math.min(p + 1, moves.length - 1));
+              }}
               disabled={selectedPly === moves.length - 1}
               className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
             >
@@ -271,7 +408,10 @@ export default function GamePage() {
                 return (
                   <tr
                     key={move.id}
-                    onClick={() => setSelectedPly(index)}
+                    onClick={() => {
+                      setIsPlaying(false);
+                      setSelectedPly(index);
+                    }}
                     className={`cursor-pointer border-b border-hairline border-l-4 ${CLASSIFICATION_STYLES[classification]} ${
                       selectedPly === index ? "bg-brass/20" : "hover:bg-hairline/30"
                     }`}
