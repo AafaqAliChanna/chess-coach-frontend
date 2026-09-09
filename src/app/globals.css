@@ -7,6 +7,10 @@
   --board-dark: #1e3129;
   --brass: #b08968;
   --hairline: #dad4c8;
+  --sidebar-bg: #1c2620;
+  --sidebar-text: #ede9e2;
+  --sidebar-muted: rgba(237, 233, 226, 0.5);
+  --sidebar-active: rgba(255, 255, 255, 0.08);
 }
 
 @theme inline {
@@ -16,6 +20,10 @@
   --color-board-dark: var(--board-dark);
   --color-brass: var(--brass);
   --color-hairline: var(--hairline);
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-serif: var(--font-source-serif);
