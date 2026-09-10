@@ -12,16 +12,12 @@ export const metadata: Metadata = {
   description: "Upload your games and get Stockfish-powered move analysis.",
 };
 
-// Items with an href are live routes. Items without one are roadmap
-// features (Chess DNA, Training, etc.) — shown as locked/disabled so the
-// sidebar communicates the full product vision without pretending
-// unbuilt features work. Matches the blueprint's "locked state" guidance.
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Upload", href: "/" },
   { label: "My Games", href: "/games" },
   { label: "Analysis", href: null },
-  { label: "My Chess DNA", href: null },
+  { label: "My Chess DNA", href: "/chess-dna" },
   { label: "Training", href: null },
   { label: "Progress", href: null },
   { label: "AI Coach", href: null },
