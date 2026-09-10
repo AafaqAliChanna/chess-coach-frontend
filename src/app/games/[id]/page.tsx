@@ -64,22 +64,16 @@ const AUTOPLAY_INTERVAL_MS = 800;
 function getChangedSquares(fenBefore: string, fenAfter: string): string[] {
   const boardBefore = fenBefore.split(" ")[0];
   const boardAfter = fenAfter.split(" ")[0];
-
   function expandRank(rank: string): string[] {
     const squares: string[] = [];
     for (const char of rank) {
-      if (/\d/.test(char)) {
-        squares.push(...Array(Number(char)).fill(""));
-      } else {
-        squares.push(char);
-      }
+      if (/\d/.test(char)) squares.push(...Array(Number(char)).fill(""));
+      else squares.push(char);
     }
     return squares;
   }
-
   const ranksBefore = boardBefore.split("/").map(expandRank);
   const ranksAfter = boardAfter.split("/").map(expandRank);
-
   const changed: string[] = [];
   for (let rankIndex = 0; rankIndex < 8; rankIndex++) {
     for (let fileIndex = 0; fileIndex < 8; fileIndex++) {
@@ -139,6 +133,10 @@ export default function GamePage() {
   const [titleDraft, setTitleDraft] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
 
+  const [coaching, setCoaching] = useState<string | null>(null);
+  const [coachingLoading, setCoachingLoading] = useState(false);
+  const [coachingError, setCoachingError] = useState("");
+
   const reportRef = useRef<ReportEntry[]>([]);
   useEffect(() => {
     reportRef.current = report;
@@ -164,7 +162,6 @@ export default function GamePage() {
 
   useEffect(() => {
     let cancelled = false;
-
     function fetchReport() {
       fetch(`${API_BASE_URL}/api/games/${gameId}/report`)
         .then((res) => {
@@ -179,7 +176,6 @@ export default function GamePage() {
           if (!cancelled) setError(err.message);
         });
     }
-
     fetchReport();
     let pollCount = 0;
     const MAX_POLLS = 30;
@@ -193,7 +189,6 @@ export default function GamePage() {
         if (stillPending) setError("Analysis is taking longer than expected. Refresh to check again.");
       }
     }, 2000);
-
     return () => {
       cancelled = true;
       clearInterval(intervalId);
@@ -236,12 +231,9 @@ export default function GamePage() {
       `Delete "${displayName}"? This permanently removes the game and its analysis — it cannot be undone.`
     );
     if (!confirmed) return;
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, { method: "DELETE" });
-      if (!response.ok && response.status !== 204) {
-        throw new Error(`Failed to delete: ${response.status}`);
-      }
+      if (!response.ok && response.status !== 204) throw new Error(`Failed to delete: ${response.status}`);
       router.push("/games");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -274,6 +266,29 @@ export default function GamePage() {
     }
   }
 
+  // Coaching can take 30s to several minutes (local LLM inference), and the
+  // backend returns 503 specifically when analysis isn't done or the LLM
+  // service is unreachable — we surface that as a distinct, retryable
+  // message rather than a generic error.
+  async function handleGetCoaching() {
+    setCoachingLoading(true);
+    setCoachingError("");
+    setCoaching(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/games/${gameId}/coaching`);
+      if (response.status === 503) {
+        throw new Error("Coaching isn't ready yet — analysis may still be running, or the AI service is temporarily unavailable. Try again in a moment.");
+      }
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      const data = await response.json();
+      setCoaching(data.summary);
+    } catch (err) {
+      setCoachingError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCoachingLoading(false);
+    }
+  }
+
   if (error) return <p className="p-8 text-red-700">{error}</p>;
   if (!game) return <p className="p-8 text-foreground">Loading…</p>;
 
@@ -290,20 +305,13 @@ export default function GamePage() {
     const classification = currentReportEntry?.classification;
     const squareColor = classification ? CLASSIFICATION_SQUARE_COLOR[classification] : null;
     const changedSquares = getChangedSquares(previousFen, currentFen);
-
     if (squareColor) {
-      for (const square of changedSquares) {
-        squareStyles[square] = { backgroundColor: squareColor };
-      }
+      for (const square of changedSquares) squareStyles[square] = { backgroundColor: squareColor };
     }
-
     const badgeInfo = classification ? CLASSIFICATION_BADGE[classification] : null;
     if (badgeInfo) {
       const destSquare = findDestinationSquare(currentFen, changedSquares);
-      if (destSquare) {
-        const pixel = squareToPixel(destSquare);
-        badge = { ...pixel, ...badgeInfo };
-      }
+      if (destSquare) badge = { ...squareToPixel(destSquare), ...badgeInfo };
     }
   }
 
@@ -330,11 +338,7 @@ export default function GamePage() {
                 className="border border-hairline bg-background px-2 py-1 font-serif text-xl text-foreground focus:border-board focus:outline-none"
                 autoFocus
               />
-              <button
-                onClick={saveTitle}
-                disabled={savingTitle}
-                className="text-xs text-board hover:underline disabled:opacity-50"
-              >
+              <button onClick={saveTitle} disabled={savingTitle} className="text-xs text-board hover:underline disabled:opacity-50">
                 {savingTitle ? "Saving…" : "Save"}
               </button>
               <button onClick={() => setEditingTitle(false)} className="text-xs text-foreground/60 hover:underline">
@@ -344,10 +348,7 @@ export default function GamePage() {
           ) : (
             <h1 className="group font-serif text-2xl text-foreground">
               {game.title || `${game.whitePlayer} vs ${game.blackPlayer}`}{" "}
-              <button
-                onClick={startEditingTitle}
-                className="text-xs font-sans text-foreground/40 hover:text-board hover:underline"
-              >
+              <button onClick={startEditingTitle} className="text-xs font-sans text-foreground/40 hover:text-board hover:underline">
                 edit
               </button>
             </h1>
@@ -364,12 +365,10 @@ export default function GamePage() {
       {!anyPending && (whiteAccuracy !== null || blackAccuracy !== null) && (
         <div className="mb-8 flex gap-8 border-y border-hairline py-3 text-sm">
           <p className="text-foreground">
-            {game.whitePlayer} approx. accuracy:{" "}
-            <span className="font-semibold">{whiteAccuracy !== null ? whiteAccuracy.toFixed(1) : "–"}%</span>
+            {game.whitePlayer} approx. accuracy: <span className="font-semibold">{whiteAccuracy !== null ? whiteAccuracy.toFixed(1) : "–"}%</span>
           </p>
           <p className="text-foreground">
-            {game.blackPlayer} approx. accuracy:{" "}
-            <span className="font-semibold">{blackAccuracy !== null ? blackAccuracy.toFixed(1) : "–"}%</span>
+            {game.blackPlayer} approx. accuracy: <span className="font-semibold">{blackAccuracy !== null ? blackAccuracy.toFixed(1) : "–"}%</span>
           </p>
         </div>
       )}
@@ -395,10 +394,7 @@ export default function GamePage() {
 
           <div className="mt-4 flex gap-2">
             <button
-              onClick={() => {
-                setIsPlaying(false);
-                setSelectedPly((p) => Math.max(p - 1, -1));
-              }}
+              onClick={() => { setIsPlaying(false); setSelectedPly((p) => Math.max(p - 1, -1)); }}
               disabled={selectedPly === -1}
               className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
             >
@@ -412,23 +408,45 @@ export default function GamePage() {
               {isPlaying ? "⏸ Pause" : "▶ Play"}
             </button>
             <button
-              onClick={() => {
-                setIsPlaying(false);
-                setSelectedPly((p) => Math.min(p + 1, moves.length - 1));
-              }}
+              onClick={() => { setIsPlaying(false); setSelectedPly((p) => Math.min(p + 1, moves.length - 1)); }}
               disabled={selectedPly === moves.length - 1}
               className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
             >
               Next →
             </button>
           </div>
+
+          <div className="mt-8 border-t border-hairline pt-4">
+            <h2 className="mb-2 font-serif text-lg text-foreground">AI Coaching</h2>
+            {!coaching && !coachingLoading && (
+              <button
+                onClick={handleGetCoaching}
+                disabled={anyPending}
+                className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark disabled:opacity-50"
+              >
+                Get AI Coaching
+              </button>
+            )}
+            {coachingLoading && (
+              <p className="text-sm italic text-foreground/60">
+                Generating coaching insights — this can take a few minutes on first run…
+              </p>
+            )}
+            {coachingError && (
+              <div>
+                <p className="mb-2 text-sm text-red-700">{coachingError}</p>
+                <button onClick={handleGetCoaching} className="text-xs text-board hover:underline">
+                  Retry
+                </button>
+              </div>
+            )}
+            {coaching && <p className="max-w-md text-sm leading-relaxed text-foreground">{coaching}</p>}
+          </div>
         </div>
 
         <div className="max-w-md flex-1">
           {anyPending && (
-            <p className="mb-3 text-sm italic text-foreground/50">
-              Analysis in progress — updating automatically…
-            </p>
+            <p className="mb-3 text-sm italic text-foreground/50">Analysis in progress — updating automatically…</p>
           )}
 
           <table className="w-full text-sm">
@@ -447,10 +465,7 @@ export default function GamePage() {
                 return (
                   <tr
                     key={move.id}
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setSelectedPly(index);
-                    }}
+                    onClick={() => { setIsPlaying(false); setSelectedPly(index); }}
                     className={`cursor-pointer border-b border-hairline border-l-4 ${CLASSIFICATION_STYLES[classification]} ${
                       selectedPly === index ? "bg-brass/20" : "hover:bg-hairline/30"
                     }`}
