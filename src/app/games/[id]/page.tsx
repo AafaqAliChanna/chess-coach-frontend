@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Chessboard } from "react-chessboard";
 import { API_BASE_URL } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 
 type Game = {
   id: number;
@@ -122,6 +123,7 @@ export default function GamePage() {
   const params = useParams();
   const router = useRouter();
   const gameId = params.id;
+  const { user } = useAuth();
 
   const [game, setGame] = useState<Game | null>(null);
   const [moves, setMoves] = useState<Move[]>([]);
@@ -132,6 +134,8 @@ export default function GamePage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
+  const [titleError, setTitleError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   const [coaching, setCoaching] = useState<string | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(false);
@@ -226,50 +230,82 @@ export default function GamePage() {
 
   async function handleDelete() {
     if (!game) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
     const displayName = game.title || `${game.whitePlayer} vs ${game.blackPlayer}`;
     const confirmed = window.confirm(
       `Delete "${displayName}"? This permanently removes the game and its analysis — it cannot be undone.`
     );
     if (!confirmed) return;
+
+    setDeleteError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, { method: "DELETE" });
-      if (!response.ok && response.status !== 204) throw new Error(`Failed to delete: ${response.status}`);
+      const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (response.status === 403) {
+        setDeleteError("You don't have permission to delete this game — it belongs to a different account.");
+        return;
+      }
+      if (!response.ok && response.status !== 204) {
+        throw new Error(`Failed to delete: ${response.status}`);
+      }
       router.push("/games");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setDeleteError(err instanceof Error ? err.message : String(err));
     }
   }
 
   function startEditingTitle() {
     if (!game) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
     setTitleDraft(game.title || "");
     setEditingTitle(true);
+    setTitleError("");
   }
 
   async function saveTitle() {
-    if (!game) return;
+    if (!game || !user) return;
     setSavingTitle(true);
+    setTitleError("");
     try {
       const response = await fetch(`${API_BASE_URL}/api/games/${gameId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
         body: JSON.stringify({ title: titleDraft || null }),
       });
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (response.status === 403) {
+        setTitleError("You don't have permission to edit this game — it belongs to a different account.");
+        return;
+      }
       if (!response.ok) throw new Error(`Failed to save title: ${response.status}`);
       const updated = await response.json();
       setGame(updated);
       setEditingTitle(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setTitleError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingTitle(false);
     }
   }
 
-  // Coaching can take 30s to several minutes (local LLM inference), and the
-  // backend returns 503 specifically when analysis isn't done or the LLM
-  // service is unreachable — we surface that as a distinct, retryable
-  // message rather than a generic error.
   async function handleGetCoaching() {
     setCoachingLoading(true);
     setCoachingError("");
@@ -353,13 +389,17 @@ export default function GamePage() {
               </button>
             </h1>
           )}
+          {titleError && <p className="mt-1 text-xs text-red-700">{titleError}</p>}
           <p className="text-sm text-foreground/60">
             {game.result} · {new Date(game.uploadedAt).toLocaleString()}
           </p>
         </div>
-        <button onClick={handleDelete} className="text-xs text-red-700 hover:underline">
-          Delete game
-        </button>
+        <div className="text-right">
+          <button onClick={handleDelete} className="text-xs text-red-700 hover:underline">
+            Delete game
+          </button>
+          {deleteError && <p className="mt-1 max-w-[200px] text-xs text-red-700">{deleteError}</p>}
+        </div>
       </div>
 
       {!anyPending && (whiteAccuracy !== null || blackAccuracy !== null) && (
