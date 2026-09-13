@@ -18,7 +18,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Upload", href: "/" },
   { label: "My Games", href: "/games" },
-  { label: "Analysis", href: null },
+  { label: "Analysis", href: "/games" },
   { label: "My Chess DNA", href: "/chess-dna" },
   { label: "Training", href: "/training" },
   { label: "Progress", href: null },
