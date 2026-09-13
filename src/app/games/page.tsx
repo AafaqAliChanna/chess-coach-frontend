@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 
 type Game = {
   id: number;
@@ -19,6 +21,8 @@ export default function GamesListPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const { user } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/games`)
@@ -47,6 +51,10 @@ export default function GamesListPage() {
   }
 
   async function handleDeleteOne(game: Game) {
+    if (!user) {
+      router.push("/login");
+      return;
+    }
     const displayName = game.title || `${game.whitePlayer} vs ${game.blackPlayer}`;
     const confirmed = window.confirm(
       `Delete "${displayName}"? This permanently removes the game and its analysis — it cannot be undone.`
@@ -56,6 +64,10 @@ export default function GamesListPage() {
   }
 
   async function handleDeleteSelected() {
+    if (!user) {
+      router.push("/login");
+      return;
+    }
     const count = selectedIds.size;
     const confirmed = window.confirm(
       `Delete ${count} selected game${count > 1 ? "s" : ""}? This permanently removes them and their analysis — it cannot be undone.`
@@ -65,27 +77,56 @@ export default function GamesListPage() {
   }
 
   async function deleteGames(ids: number[]) {
-    try {
-      const results = await Promise.all(
-        ids.map((id) => fetch(`${API_BASE_URL}/api/games/${id}`, { method: "DELETE" }))
-      );
-      const failed = results.filter((r) => !r.ok && r.status !== 204);
-      if (failed.length > 0) {
-        throw new Error(`${failed.length} of ${ids.length} deletes failed`);
+    if (!user) return;
+    setError("");
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const response = await fetch(`${API_BASE_URL}/api/games/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+        return { id, status: response.status };
+      })
+    );
+
+    const succeeded: number[] = [];
+    let sawUnauthorized = false;
+    let forbiddenCount = 0;
+    let otherFailCount = 0;
+
+    for (const result of results) {
+      if (result.status !== "fulfilled") {
+        otherFailCount++;
+        continue;
       }
-      setGames((prev) => prev?.filter((g) => !ids.includes(g.id)) ?? null);
+      const { id, status } = result.value;
+      if (status === 204 || status === 200) succeeded.push(id);
+      else if (status === 401) sawUnauthorized = true;
+      else if (status === 403) forbiddenCount++;
+      else otherFailCount++;
+    }
+
+    if (succeeded.length > 0) {
+      setGames((prev) => prev?.filter((g) => !succeeded.includes(g.id)) ?? null);
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
+        succeeded.forEach((id) => next.delete(id));
         return next;
       });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    }
+
+    if (sawUnauthorized) {
+      router.push("/login");
+      return;
+    }
+    if (forbiddenCount > 0) {
+      setError(`${forbiddenCount} game(s) couldn't be deleted — they belong to a different account.`);
+    } else if (otherFailCount > 0) {
+      setError(`${otherFailCount} delete(s) failed unexpectedly.`);
     }
   }
 
-  if (error) return <p className="p-8 text-red-700">{error}</p>;
-  if (!games) return <p className="p-8 text-foreground">Loading…</p>;
+  if (!games) return error ? <p className="p-8 text-red-700">{error}</p> : <p className="p-8 text-foreground">Loading…</p>;
 
   const filtered = games.filter((game) => {
     const query = search.toLowerCase();
@@ -112,6 +153,8 @@ export default function GamesListPage() {
         )}
       </div>
 
+      {error && <p className="mb-4 text-sm text-red-700">{error}</p>}
+
       {games.length > 0 && (
         <input
           value={search}
@@ -136,11 +179,7 @@ export default function GamesListPage() {
           <thead>
             <tr className="border-b border-hairline text-left text-foreground/50">
               <th className="w-8 py-2">
-                <input
-                  type="checkbox"
-                  checked={allFilteredSelected}
-                  onChange={() => toggleSelectAll(filteredIds)}
-                />
+                <input type="checkbox" checked={allFilteredSelected} onChange={() => toggleSelectAll(filteredIds)} />
               </th>
               <th className="font-medium">Game</th>
               <th className="font-medium">Result</th>
@@ -152,11 +191,7 @@ export default function GamesListPage() {
             {filtered.map((game) => (
               <tr key={game.id} className="border-b border-hairline">
                 <td className="py-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(game.id)}
-                    onChange={() => toggleSelected(game.id)}
-                  />
+                  <input type="checkbox" checked={selectedIds.has(game.id)} onChange={() => toggleSelected(game.id)} />
                 </td>
                 <td>
                   <Link href={`/games/${game.id}`} className="text-board hover:text-board-dark">
@@ -166,10 +201,7 @@ export default function GamesListPage() {
                 <td className="font-mono text-foreground/70">{game.result}</td>
                 <td className="text-foreground/70">{new Date(game.uploadedAt).toLocaleString()}</td>
                 <td className="text-right">
-                  <button
-                    onClick={() => handleDeleteOne(game)}
-                    className="text-xs text-red-700 hover:underline"
-                  >
+                  <button onClick={() => handleDeleteOne(game)} className="text-xs text-red-700 hover:underline">
                     Delete
                   </button>
                 </td>
