@@ -21,7 +21,7 @@ const NAV_ITEMS = [
   { label: "Analysis", href: "/games" },
   { label: "My Chess DNA", href: "/chess-dna" },
   { label: "Training", href: "/training" },
-  { label: "Progress", href: null },
+  { label: "Progress", href: "/progress" },
   { label: "AI Coach", href: null },
   { label: "Settings", href: null },
   { label: "Profile", href: "/profile" },
