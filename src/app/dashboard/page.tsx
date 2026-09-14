@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
+import { getMyPlayerName } from "@/lib/profile";
 
 type Game = {
   id: number;
@@ -13,9 +14,54 @@ type Game = {
   uploadedAt: string;
 };
 
+type Phase = "OPENING" | "MIDDLEGAME" | "ENDGAME";
+type Severity = "INACCURACY" | "MISTAKE" | "BLUNDER";
+type PatternsResponse = {
+  gamesFound: number;
+  gamesAnalyzed: number;
+  mistakesByPhase: Record<Phase, Record<Severity, number>>;
+};
+
+function computeRecord(games: Game[], name: string) {
+  let wins = 0;
+  let losses = 0;
+  let draws = 0;
+  const lower = name.toLowerCase();
+
+  for (const game of games) {
+    const isWhite = game.whitePlayer.toLowerCase() === lower;
+    const isBlack = game.blackPlayer.toLowerCase() === lower;
+    if (!isWhite && !isBlack) continue;
+
+    if (game.result === "1-0") isWhite ? wins++ : losses++;
+    else if (game.result === "0-1") isBlack ? wins++ : losses++;
+    else if (game.result === "1/2-1/2") draws++;
+  }
+
+  const total = wins + losses + draws;
+  return { wins, losses, draws, total, winRate: total > 0 ? (wins / total) * 100 : null };
+}
+
+function findBiggestPattern(data: PatternsResponse): { phase: Phase; severity: Severity; count: number } | null {
+  let best: { phase: Phase; severity: Severity; count: number } | null = null;
+  for (const phase of ["OPENING", "MIDDLEGAME", "ENDGAME"] as Phase[]) {
+    for (const severity of ["INACCURACY", "MISTAKE", "BLUNDER"] as Severity[]) {
+      const count = data.mistakesByPhase[phase]?.[severity] ?? 0;
+      if (!best || count > best.count) best = { phase, severity, count };
+    }
+  }
+  return best && best.count > 0 ? best : null;
+}
+
 export default function DashboardPage() {
   const [games, setGames] = useState<Game[] | null>(null);
+  const [patterns, setPatterns] = useState<PatternsResponse | null>(null);
   const [error, setError] = useState("");
+  const [playerName, setPlayerName] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPlayerName(getMyPlayerName());
+  }, []);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/games`)
@@ -27,8 +73,19 @@ export default function DashboardPage() {
       .catch((err) => setError(err.message));
   }, []);
 
+  useEffect(() => {
+    if (!playerName) return;
+    fetch(`${API_BASE_URL}/api/players/${encodeURIComponent(playerName)}/patterns`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then(setPatterns)
+      .catch(() => {});
+  }, [playerName]);
+
   if (error) return <p className="p-8 text-red-700">{error}</p>;
   if (!games) return <p className="p-8 text-foreground">Loading…</p>;
+
+  const record = playerName ? computeRecord(games, playerName) : null;
+  const biggestPattern = patterns ? findBiggestPattern(patterns) : null;
 
   const recent = [...games]
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
@@ -37,6 +94,16 @@ export default function DashboardPage() {
   return (
     <div className="px-8 py-12">
       <h1 className="mb-8 font-serif text-3xl text-foreground">Dashboard</h1>
+
+      {!playerName && (
+        <p className="mb-8 border border-hairline bg-brass/10 p-3 text-sm text-foreground">
+          Set your player name in{" "}
+          <Link href="/profile" className="text-board underline">
+            Profile
+          </Link>{" "}
+          to unlock win rate and pattern insights below.
+        </p>
+      )}
 
       <div className="mb-10 grid grid-cols-3 gap-4">
         <div className="border border-hairline p-4">
@@ -47,17 +114,39 @@ export default function DashboardPage() {
           <p className="text-xs text-foreground/50">Rating</p>
           <p className="font-serif text-2xl text-foreground">— Coming soon</p>
         </div>
-        <div className="border border-hairline p-4 opacity-50">
+        <div className="border border-hairline p-4">
           <p className="text-xs text-foreground/50">Win rate</p>
-          <p className="font-serif text-2xl text-foreground">— Coming soon</p>
+          {record && record.total > 0 ? (
+            <>
+              <p className="font-serif text-2xl text-foreground">{record.winRate!.toFixed(0)}%</p>
+              <p className="text-xs text-foreground/50">
+                {record.wins}W {record.draws}D {record.losses}L
+              </p>
+            </>
+          ) : (
+            <p className="font-serif text-2xl text-foreground opacity-50">
+              {playerName ? "No decisive games yet" : "— Coming soon"}
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="mb-10 border border-hairline p-4 opacity-50">
+      <div className="mb-10 border border-hairline p-4">
         <p className="mb-1 text-xs font-medium uppercase text-foreground/50">Your biggest pattern</p>
-        <p className="text-sm text-foreground/70">
-          Coming soon — requires analyzing patterns across multiple games (Chess DNA).
-        </p>
+        {biggestPattern ? (
+          <p className="text-sm text-foreground">
+            Your most common issue is a <span className="font-semibold">{biggestPattern.severity}</span> in the{" "}
+            <span className="font-semibold">{biggestPattern.phase.toLowerCase()}</span> — found{" "}
+            {biggestPattern.count} time{biggestPattern.count > 1 ? "s" : ""}.{" "}
+            <Link href="/chess-dna" className="text-board underline">
+              See full breakdown
+            </Link>
+          </p>
+        ) : (
+          <p className="text-sm text-foreground/70 opacity-70">
+            {playerName ? "No mistakes found yet for this name." : "Set your player name in Profile to see this."}
+          </p>
+        )}
       </div>
 
       <h2 className="mb-3 font-serif text-xl text-foreground">Recent games</h2>
