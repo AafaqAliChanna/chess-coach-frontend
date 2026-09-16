@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Chessboard } from "react-chessboard";
 import { API_BASE_URL } from "@/lib/api";
@@ -40,7 +41,13 @@ function bestMoveSquares(uci: string): { from: string; to: string } {
   return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
 }
 
-export default function TrainingPage() {
+function isPhase(value: string | null): value is Phase {
+  return value === "OPENING" || value === "MIDDLEGAME" || value === "ENDGAME";
+}
+
+function TrainingContent() {
+  const searchParams = useSearchParams();
+
   const [name, setName] = useState("");
   const [phase, setPhase] = useState<Phase | "">("");
   const [exercises, setExercises] = useState<Exercise[] | null>(null);
@@ -48,17 +55,16 @@ export default function TrainingPage() {
   const [error, setError] = useState("");
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
+  async function fetchExercises(searchName: string, searchPhase: Phase | "") {
+    if (!searchName.trim()) return;
     setLoading(true);
     setError("");
     setExercises(null);
     setRevealed(new Set());
     try {
       const params = new URLSearchParams();
-      if (phase) params.set("phase", phase);
-      const url = `${API_BASE_URL}/api/players/${encodeURIComponent(name.trim())}/training${
+      if (searchPhase) params.set("phase", searchPhase);
+      const url = `${API_BASE_URL}/api/players/${encodeURIComponent(searchName.trim())}/training${
         params.toString() ? `?${params.toString()}` : ""
       }`;
       const response = await fetch(url);
@@ -70,6 +76,28 @@ export default function TrainingPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Deep-link support: Dashboard's "Practice this" links here with
+  // ?name=&phase= pre-filled, so the search runs automatically instead of
+  // making the user retype their name. Runs once on mount only — after
+  // that the form behaves exactly as before (manual submit).
+  useEffect(() => {
+    const paramName = searchParams.get("name");
+    const paramPhase = searchParams.get("phase");
+    const resolvedPhase: Phase | "" = isPhase(paramPhase) ? paramPhase : "";
+
+    if (paramName) {
+      setName(paramName);
+      setPhase(resolvedPhase);
+      fetchExercises(paramName, resolvedPhase);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    await fetchExercises(name, phase);
   }
 
   function toggleReveal(index: number) {
@@ -172,5 +200,13 @@ export default function TrainingPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function TrainingPage() {
+  return (
+    <Suspense fallback={<div className="px-8 py-12 text-foreground">Loading…</div>}>
+      <TrainingContent />
+    </Suspense>
   );
 }

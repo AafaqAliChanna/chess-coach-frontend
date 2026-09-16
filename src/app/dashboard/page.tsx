@@ -91,9 +91,15 @@ export default function DashboardPage() {
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
     .slice(0, 5);
 
+  const trainingHref =
+    playerName && biggestPattern
+      ? `/training?name=${encodeURIComponent(playerName)}&phase=${biggestPattern.phase}`
+      : null;
+
   return (
     <div className="px-8 py-12">
-      <h1 className="mb-8 font-serif text-3xl text-foreground">Dashboard</h1>
+      <h1 className="mb-1 font-serif text-3xl text-foreground">Dashboard</h1>
+      <p className="mb-8 text-sm text-foreground/60">Good to see you back.</p>
 
       {!playerName && (
         <p className="mb-8 border border-hairline bg-brass/10 p-3 text-sm text-foreground">
@@ -104,6 +110,43 @@ export default function DashboardPage() {
           to unlock win rate and pattern insights below.
         </p>
       )}
+
+      {/* Top Focus: the single highest-count phase/severity combination from
+          real /patterns data. Deliberately not framed as a named "pattern"
+          (e.g. "you attack before checking threats") since we only have raw
+          phase+severity counts, not move-level pattern detection yet — that
+          would need new backend work. Honest framing over a punchier one. */}
+      <div className="mb-10 border border-hairline bg-board/5 p-6">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">Your top focus</p>
+        {!playerName ? (
+          <p className="text-sm text-foreground/70">Set your player name in Profile to see this.</p>
+        ) : !patterns ? (
+          <p className="text-sm text-foreground/70">Loading…</p>
+        ) : biggestPattern ? (
+          <>
+            <p className="mb-4 text-lg text-foreground">
+              You lose the most ground to <span className="font-semibold">{biggestPattern.severity.toLowerCase()}</span>{" "}
+              moves in the <span className="font-semibold">{biggestPattern.phase.toLowerCase()}</span> — {biggestPattern.count}{" "}
+              found in your analyzed games so far.
+            </p>
+            <div className="flex gap-3">
+              {trainingHref && (
+                <Link
+                  href={trainingHref}
+                  className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark"
+                >
+                  Practice this
+                </Link>
+              )}
+              <Link href="/chess-dna" className="border border-hairline px-4 py-2 text-sm text-foreground hover:bg-hairline/30">
+                See full breakdown
+              </Link>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-foreground/70">No mistakes found yet for this name.</p>
+        )}
+      </div>
 
       <div className="mb-10 grid grid-cols-3 gap-4">
         <div className="border border-hairline p-4">
@@ -129,24 +172,6 @@ export default function DashboardPage() {
             </p>
           )}
         </div>
-      </div>
-
-      <div className="mb-10 border border-hairline p-4">
-        <p className="mb-1 text-xs font-medium uppercase text-foreground/50">Your biggest pattern</p>
-        {biggestPattern ? (
-          <p className="text-sm text-foreground">
-            Your most common issue is a <span className="font-semibold">{biggestPattern.severity}</span> in the{" "}
-            <span className="font-semibold">{biggestPattern.phase.toLowerCase()}</span> — found{" "}
-            {biggestPattern.count} time{biggestPattern.count > 1 ? "s" : ""}.{" "}
-            <Link href="/chess-dna" className="text-board underline">
-              See full breakdown
-            </Link>
-          </p>
-        ) : (
-          <p className="text-sm text-foreground/70 opacity-70">
-            {playerName ? "No mistakes found yet for this name." : "Set your player name in Profile to see this."}
-          </p>
-        )}
       </div>
 
       <h2 className="mb-3 font-serif text-xl text-foreground">Recent games</h2>
