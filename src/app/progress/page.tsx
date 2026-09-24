@@ -4,13 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
 import { getMyPlayerName } from "@/lib/profile";
-
-type Game = {
-  id: number;
-  whitePlayer: string;
-  blackPlayer: string;
-  uploadedAt: string;
-};
+import type { Game } from "@/lib/types";
 
 type ReportEntry = {
   centipawnLoss: number;
@@ -119,9 +113,6 @@ export default function ProgressPage() {
 
   const maxIssues = Math.max(...stats.map((s) => s.totalIssues), 1);
 
-  // Milestone: compare the first half vs second half of this recent window,
-  // so a genuine improvement (fewer mistakes per game recently) is visible
-  // even though this is only a 20-game sample, not full history.
   const mid = Math.floor(stats.length / 2);
   const earlierAvg = stats.slice(0, mid).reduce((sum, s) => sum + s.totalIssues, 0) / (mid || 1);
   const laterAvg = stats.slice(mid).reduce((sum, s) => sum + s.totalIssues, 0) / (stats.length - mid || 1);
