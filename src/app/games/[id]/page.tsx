@@ -6,16 +6,7 @@ import { Chessboard } from "react-chessboard";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import GameReportPanel from "@/components/GameReportPanel";
-
-type Game = {
-  id: number;
-  pgn: string;
-  title: string | null;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string;
-  uploadedAt: string;
-};
+import type { Game } from "@/lib/types";
 
 type Move = {
   id: number;
@@ -433,7 +424,8 @@ export default function GamePage() {
           )}
           {titleError && <p className="mt-1 text-xs text-red-700">{titleError}</p>}
           <p className="text-sm text-foreground/60">
-            {game.result} · {new Date(game.uploadedAt).toLocaleString()}
+            {game.result}
+            {game.timeControl && <> · {game.timeControl}</>} · {new Date(game.uploadedAt).toLocaleString()}
           </p>
         </div>
         <div className="text-right">
