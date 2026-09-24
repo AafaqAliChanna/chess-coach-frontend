@@ -5,16 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
-
-type Game = {
-  id: number;
-  pgn: string;
-  title: string | null;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string;
-  uploadedAt: string;
-};
+import type { Game } from "@/lib/types";
 
 export default function GamesListPage() {
   const [games, setGames] = useState<Game[] | null>(null);
