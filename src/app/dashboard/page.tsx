@@ -4,15 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
 import { getMyPlayerName } from "@/lib/profile";
-
-type Game = {
-  id: number;
-  title: string | null;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string;
-  uploadedAt: string;
-};
+import type { Game } from "@/lib/types";
 
 type Phase = "OPENING" | "MIDDLEGAME" | "ENDGAME";
 type Severity = "INACCURACY" | "MISTAKE" | "BLUNDER";
@@ -111,11 +103,6 @@ export default function DashboardPage() {
         </p>
       )}
 
-      {/* Top Focus: the single highest-count phase/severity combination from
-          real /patterns data. Deliberately not framed as a named "pattern"
-          (e.g. "you attack before checking threats") since we only have raw
-          phase+severity counts, not move-level pattern detection yet — that
-          would need new backend work. Honest framing over a punchier one. */}
       <div className="mb-10 border border-hairline bg-board/5 p-6">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">Your top focus</p>
         {!playerName ? (
