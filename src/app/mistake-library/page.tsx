@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { Chessboard } from "react-chessboard";
+import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 import { getMyPlayerName } from "@/lib/profile";
+import { useAuth } from "@/components/AuthProvider";
+import RetryBoard from "@/components/RetryBoard";
 
 type Phase = "OPENING" | "MIDDLEGAME" | "ENDGAME";
 type Classification = "INACCURACY" | "MISTAKE" | "BLUNDER";
@@ -40,9 +42,6 @@ const CLASSIFICATION_COLOR: Record<Classification, string> = {
   BLUNDER: "text-red-800",
 };
 
-// POSITIONAL is deliberately not shown as a motif name — the backend flags it
-// as "mistake happened, but no specific tactical cause was detected," not a
-// real pattern label, so it's presented as "Other" per that honesty.
 const PATTERN_LABELS: Record<PatternTag, string> = {
   MISSED_MATE: "Missed Mate",
   ALLOWED_MATE: "Allowed Mate",
@@ -50,10 +49,19 @@ const PATTERN_LABELS: Record<PatternTag, string> = {
   POSITIONAL: "Other",
 };
 
+// Category-level explanations, not position-specific analysis — honest about
+// what these are: what the pattern tag itself means, not AI-generated
+// reasoning about this exact position (that only exists via the separate,
+// slow, per-game AI Coaching feature, which isn't feasible to call per card).
+const PATTERN_EXPLANATIONS: Record<PatternTag, string> = {
+  HANGING_PIECE: "This move left a piece where the opponent's next move could capture it for free.",
+  MISSED_MATE: "A forced checkmate was available here, but a different move was played instead.",
+  ALLOWED_MATE: "This move allowed the opponent to force checkmate.",
+  POSITIONAL: "No specific tactical cause was detected — the engine flagged this as a mistake, but it doesn't fit the categories above.",
+};
+
 const PATTERN_ORDER: PatternTag[] = ["HANGING_PIECE", "MISSED_MATE", "ALLOWED_MATE", "POSITIONAL"];
 
-// Same known backend issue guarded against on the Training page: a missed
-// forced mate can come back as a nonsensical huge centipawn number.
 const MATE_SCORE_THRESHOLD = 5000;
 
 function formatCpLoss(cp: number): string {
@@ -65,12 +73,87 @@ function bestMoveSquares(uci: string): { from: string; to: string } {
   return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
 }
 
+function isPatternTag(value: string | null): value is PatternTag {
+  return value === "MISSED_MATE" || value === "ALLOWED_MATE" || value === "HANGING_PIECE" || value === "POSITIONAL";
+}
+
 const PAGE_SIZE = 20;
 
-export default function MistakeLibraryPage() {
+function MistakeCard({
+  entry,
+  isRetryActive,
+  onToggleRetry,
+  token,
+  onAuthRequired,
+}: {
+  entry: MistakeEntry;
+  isRetryActive: boolean;
+  onToggleRetry: () => void;
+  token: string | null;
+  onAuthRequired: () => void;
+}) {
+  const { from: bestFrom, to: bestTo } = bestMoveSquares(entry.bestMoveUci);
+
+  return (
+    <div className="border border-hairline p-4">
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="text-foreground/50">
+          {entry.gamePhase} · <span className={CLASSIFICATION_COLOR[entry.classification]}>{entry.classification}</span>
+        </span>
+        <Link href={`/games/${entry.gameId}`} className="text-board hover:underline">
+          View game →
+        </Link>
+      </div>
+
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-sm font-semibold text-foreground">{entry.gameTitle}</p>
+        <span className="border border-hairline px-2 py-0.5 text-[10px] uppercase tracking-wide text-foreground/60">
+          {PATTERN_LABELS[entry.patternTag]}
+        </span>
+      </div>
+      <p className="mb-2 text-xs text-foreground/50">{new Date(entry.uploadedAt).toLocaleDateString()}</p>
+
+      <RetryBoard
+        fenBefore={entry.fenBefore}
+        bestMoveUci={entry.bestMoveUci}
+        gameId={entry.gameId}
+        plyNumber={entry.plyNumber}
+        token={token}
+        onAuthRequired={onAuthRequired}
+        interactive={isRetryActive}
+      />
+
+      <p className="mt-2 text-xs text-foreground/60">
+        {formatCpLoss(entry.centipawnLoss)} · {entry.winPercentLoss.toFixed(1)}% win probability lost
+      </p>
+
+      {!isRetryActive && (
+        <>
+          <p className="mt-1 text-sm text-foreground">
+            You played: <span className="font-mono">{entry.playerMove}</span> · Better:{" "}
+            <span className="font-mono">{bestFrom} → {bestTo}</span>
+          </p>
+          <p className="mt-1 text-xs text-foreground/60">{PATTERN_EXPLANATIONS[entry.patternTag]}</p>
+        </>
+      )}
+
+      <button
+        onClick={onToggleRetry}
+        className="mt-3 border border-hairline px-3 py-1 text-xs text-foreground hover:bg-hairline/30"
+      >
+        {isRetryActive ? "Close" : "Retry"}
+      </button>
+    </div>
+  );
+}
+
+function MistakeLibraryContent() {
+  const searchParams = useSearchParams();
+
   const [playerName, setPlayerName] = useState<string | null>(null);
   const [phaseFilter, setPhaseFilter] = useState<Phase | "">("");
   const [tagFilter, setTagFilter] = useState<PatternTag | "">("");
+  const [activeKey, setActiveKey] = useState<string | null>(null);
 
   const [data, setData] = useState<MistakeLibraryResponse | null>(null);
   const [accumulated, setAccumulated] = useState<MistakeEntry[]>([]);
@@ -79,13 +162,25 @@ export default function MistakeLibraryPage() {
   const [notDeployed, setNotDeployed] = useState(false);
   const [offset, setOffset] = useState(0);
 
+  const { user } = useAuth();
+  const router = useRouter();
+
   useEffect(() => {
     setPlayerName(getMyPlayerName());
   }, []);
 
   useEffect(() => {
+    const paramPattern = searchParams.get("pattern");
+    if (isPatternTag(paramPattern)) {
+      setTagFilter(paramPattern);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!playerName) return;
     setOffset(0);
+    setActiveKey(null);
     fetchLibrary(0, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerName, phaseFilter, tagFilter]);
@@ -129,6 +224,10 @@ export default function MistakeLibraryPage() {
     const nextOffset = offset + PAGE_SIZE;
     setOffset(nextOffset);
     fetchLibrary(nextOffset, false);
+  }
+
+  function requireAuth() {
+    router.push("/login");
   }
 
   if (!playerName) {
@@ -210,46 +309,16 @@ export default function MistakeLibraryPage() {
               ) : (
                 <div className="grid grid-cols-2 gap-8">
                   {accumulated.map((entry) => {
-                    const { from, to } = bestMoveSquares(entry.bestMoveUci);
+                    const key = `${entry.gameId}-${entry.plyNumber}`;
                     return (
-                      <div key={`${entry.gameId}-${entry.plyNumber}`} className="border border-hairline p-4">
-                        <div className="mb-2 flex items-center justify-between text-xs">
-                          <span className="text-foreground/50">
-                            {entry.gamePhase} · <span className={CLASSIFICATION_COLOR[entry.classification]}>{entry.classification}</span>
-                          </span>
-                          <Link href={`/games/${entry.gameId}`} className="text-board hover:underline">
-                            View game →
-                          </Link>
-                        </div>
-
-                        <div className="mb-2 flex items-center justify-between">
-                          <p className="text-sm font-semibold text-foreground">{entry.gameTitle}</p>
-                          <span className="border border-hairline px-2 py-0.5 text-[10px] uppercase tracking-wide text-foreground/60">
-                            {PATTERN_LABELS[entry.patternTag]}
-                          </span>
-                        </div>
-                        <p className="mb-2 text-xs text-foreground/50">{new Date(entry.uploadedAt).toLocaleDateString()}</p>
-
-                        <div className="aspect-square w-full max-w-[280px]">
-                          <Chessboard
-                            options={{
-                              position: entry.fenBefore,
-                              squareStyles: {
-                                [from]: { backgroundColor: "rgba(47, 74, 61, 0.5)" },
-                                [to]: { backgroundColor: "rgba(47, 74, 61, 0.5)" },
-                              },
-                            }}
-                          />
-                        </div>
-
-                        <p className="mt-2 text-xs text-foreground/60">
-                          {formatCpLoss(entry.centipawnLoss)} · {entry.winPercentLoss.toFixed(1)}% win probability lost
-                        </p>
-                        <p className="mt-1 text-sm text-foreground">
-                          You played: <span className="font-mono">{entry.playerMove}</span> · Better:{" "}
-                          <span className="font-mono">{from} → {to}</span>
-                        </p>
-                      </div>
+                      <MistakeCard
+                        key={key}
+                        entry={entry}
+                        isRetryActive={activeKey === key}
+                        onToggleRetry={() => setActiveKey((prev) => (prev === key ? null : key))}
+                        token={user?.token ?? null}
+                        onAuthRequired={requireAuth}
+                      />
                     );
                   })}
                 </div>
@@ -269,5 +338,13 @@ export default function MistakeLibraryPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function MistakeLibraryPage() {
+  return (
+    <Suspense fallback={<div className="px-8 py-12 text-foreground">Loading…</div>}>
+      <MistakeLibraryContent />
+    </Suspense>
   );
 }
