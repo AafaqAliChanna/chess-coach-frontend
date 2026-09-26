@@ -10,9 +10,21 @@ export type AttemptResult = {
   attemptedMoveUci: string;
 };
 
+type EngineLine = {
+  evalCp: number | null;
+  evalMate: number | null;
+  movesUci: string[];
+  movesSan: string[];
+  fenAfterFirstMove: string;
+};
+
+type LinesResponse = { lines: EngineLine[] };
+
 // Same color used on the Game Detail page's "Show better move" arrow —
 // keeping this consistent across the app rather than inventing a new one.
 const ARROW_COLOR = "#2f4a3d";
+const LINES_REQUESTED = 3;
+const DEPTH_PLY = 6;
 
 function bestMoveSquares(uci: string): { from: string; to: string } {
   return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
@@ -25,6 +37,17 @@ function computeAttemptedUci(from: string, to: string, pieceType: string): strin
   const isPawn = pieceType.toLowerCase().endsWith("p");
   const reachesBackRank = to.endsWith("8") || to.endsWith("1");
   return isPawn && reachesBackRank ? `${from}${to}q` : `${from}${to}`;
+}
+
+function formatEval(line: EngineLine): string {
+  if (line.evalMate !== null) {
+    return line.evalMate > 0 ? `Mate in ${line.evalMate}` : `Getting mated in ${Math.abs(line.evalMate)}`;
+  }
+  if (line.evalCp !== null) {
+    const pawns = line.evalCp / 100;
+    return `${pawns > 0 ? "+" : ""}${pawns.toFixed(1)}`;
+  }
+  return "—";
 }
 
 export default function RetryBoard({
@@ -50,6 +73,11 @@ export default function RetryBoard({
   const [submitting, setSubmitting] = useState(false);
   const [attemptError, setAttemptError] = useState("");
   const [result, setResult] = useState<AttemptResult | null>(null);
+
+  const [linesOpen, setLinesOpen] = useState(false);
+  const [linesData, setLinesData] = useState<EngineLine[] | null>(null);
+  const [linesLoading, setLinesLoading] = useState(false);
+  const [linesError, setLinesError] = useState("");
 
   const { from: bestFrom, to: bestTo } = bestMoveSquares(bestMoveUci);
 
@@ -121,13 +149,36 @@ export default function RetryBoard({
     setAttemptError("");
   }
 
+  async function toggleLines() {
+    if (linesOpen) {
+      setLinesOpen(false);
+      return;
+    }
+    setLinesOpen(true);
+    if (linesData || linesLoading) return;
+    setLinesLoading(true);
+    setLinesError("");
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/games/${gameId}/moves/${plyNumber}/lines?lines=${LINES_REQUESTED}&depthPly=${DEPTH_PLY}`
+      );
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      const json: LinesResponse = await response.json();
+      setLinesData(json.lines);
+    } catch (err) {
+      setLinesError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLinesLoading(false);
+    }
+  }
+
   const squareStyles: Record<string, React.CSSProperties> = {};
   let arrows: { startSquare: string; endSquare: string; color: string }[] = [];
+  const canShowLinesButton = !interactive || result !== null;
 
   if (!interactive) {
     // Static preview: an arrow reads instantly as "this is the better move" —
-    // two same-colored squares with no directionality don't, which was the
-    // actual bug here, not just a styling nitpick.
+    // two same-colored squares with no directionality don't.
     arrows = [{ startSquare: bestFrom, endSquare: bestTo, color: ARROW_COLOR }];
   } else {
     if (selected) {
@@ -189,6 +240,28 @@ export default function RetryBoard({
               <button onClick={resetRetry} className="mt-1 text-xs text-board hover:underline">
                 Try again
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {canShowLinesButton && (
+        <div className="mt-3">
+          <button onClick={toggleLines} className="text-xs text-board hover:underline">
+            {linesOpen ? "Hide engine lines" : "See engine lines →"}
+          </button>
+
+          {linesOpen && (
+            <div className="mt-2 max-w-[280px] space-y-2 border border-hairline p-3">
+              {linesLoading && <p className="text-xs italic text-foreground/50">Running the engine — this can take a few seconds…</p>}
+              {linesError && <p className="text-xs text-red-700">{linesError}</p>}
+              {linesData && linesData.length === 0 && <p className="text-xs text-foreground/50">No lines returned for this position.</p>}
+              {linesData?.map((line, i) => (
+                <div key={i} className="text-xs">
+                  <span className="font-mono font-semibold text-foreground">{formatEval(line)}</span>{" "}
+                  <span className="text-foreground/70">{line.movesSan.join(" ")}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
