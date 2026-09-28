@@ -4,6 +4,8 @@ import Link from "next/link";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import AuthStatus from "@/components/AuthStatus";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -35,36 +37,39 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} ${sourceSerif.variable} h-full antialiased`}
     >
       <body className="flex min-h-full bg-background text-foreground">
-        <AuthProvider>
-          <aside className="flex w-60 shrink-0 flex-col bg-sidebar-bg px-4 py-6">
-            <span className="mb-8 px-2 font-serif text-lg text-sidebar-text">AI Chess Coach</span>
-            <nav className="flex flex-col gap-1">
-              {NAV_ITEMS.map((item) =>
-                item.href ? (
-                  <Link
-                    key={item.label}
-                    href={item.href}
-                    className="rounded px-3 py-2 text-sm text-sidebar-text hover:bg-sidebar-active"
-                  >
-                    {item.label}
-                  </Link>
-                ) : (
-                  <span
-                    key={item.label}
-                    className="flex items-center justify-between rounded px-3 py-2 text-sm text-sidebar-muted"
-                  >
-                    {item.label}
-                    <span className="rounded bg-sidebar-active px-1.5 py-0.5 text-[10px]">Soon</span>
-                  </span>
-                )
-              )}
-            </nav>
-            <div className="mt-auto">
-              <AuthStatus />
-            </div>
-          </aside>
-          <main className="flex flex-1 flex-col overflow-x-hidden">{children}</main>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <aside className="flex w-60 shrink-0 flex-col bg-sidebar-bg px-4 py-6">
+              <span className="mb-8 px-2 font-serif text-lg text-sidebar-text">AI Chess Coach</span>
+              <nav className="flex flex-col gap-1">
+                {NAV_ITEMS.map((item) =>
+                  item.href ? (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      className="rounded px-3 py-2 text-sm text-sidebar-text transition-colors hover:bg-sidebar-active"
+                    >
+                      {item.label}
+                    </Link>
+                  ) : (
+                    <span
+                      key={item.label}
+                      className="flex items-center justify-between rounded px-3 py-2 text-sm text-sidebar-muted"
+                    >
+                      {item.label}
+                      <span className="rounded bg-sidebar-active px-1.5 py-0.5 text-[10px]">Soon</span>
+                    </span>
+                  )
+                )}
+              </nav>
+              <div className="mt-auto">
+                <ThemeToggle />
+                <AuthStatus />
+              </div>
+            </aside>
+            <main className="flex flex-1 flex-col overflow-x-hidden">{children}</main>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
