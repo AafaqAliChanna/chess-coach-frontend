@@ -10,11 +10,20 @@ type ReportEntry = {
   gamePhase?: "OPENING" | "MIDDLEGAME" | "ENDGAME";
 };
 
+type EvaluationEntry = {
+  plyNumber: number;
+  whiteWinPercent: number;
+  whiteCentipawns: number | null;
+  whiteMateIn: number | null;
+};
+
 type Props = {
   whitePlayer: string;
   blackPlayer: string;
   whiteAccuracy: number | null;
   blackAccuracy: number | null;
+  accuracyStillAnalyzing: boolean;
+  evaluationSeries: EvaluationEntry[];
   report: ReportEntry[];
   onJumpToPly: (plyNumber: number) => void;
 };
@@ -65,28 +74,30 @@ function phaseRateForSide(report: ReportEntry[], phase: string, isWhiteSide: boo
 
 const GRAPH_WIDTH = 400;
 const GRAPH_HEIGHT = 100;
-const EVAL_CLAMP = 600; // centipawns — beyond this we just clip visually, still legible
 
 export default function GameReportPanel({
   whitePlayer,
   blackPlayer,
   whiteAccuracy,
   blackAccuracy,
+  accuracyStillAnalyzing,
+  evaluationSeries,
   report,
   onJumpToPly,
 }: Props) {
   const whiteTally = tallyForSide(report, true);
   const blackTally = tallyForSide(report, false);
 
-  const plottable = report.filter((r) => r.scoreCentipawns !== null);
-  const points = plottable.map((r, i) => {
-    const x = (i / Math.max(plottable.length - 1, 1)) * GRAPH_WIDTH;
-    const clamped = Math.max(-EVAL_CLAMP, Math.min(EVAL_CLAMP, r.scoreCentipawns!));
-    const y = GRAPH_HEIGHT / 2 - (clamped / EVAL_CLAMP) * (GRAPH_HEIGHT / 2);
-    return { x, y, entry: r };
+  const points = evaluationSeries.map((entry, i) => {
+    const x = (i / Math.max(evaluationSeries.length - 1, 1)) * GRAPH_WIDTH;
+    const y = GRAPH_HEIGHT - (entry.whiteWinPercent / 100) * GRAPH_HEIGHT;
+    return { x, y, entry: report.find((r) => r.plyNumber === entry.plyNumber) };
   });
   const polylinePoints = points.map((p) => `${p.x},${p.y}`).join(" ");
-  const flaggedPoints = points.filter((p) => !["NONE", "PENDING"].includes(p.entry.classification));
+  const flaggedPoints = points.filter(
+    (p): p is { x: number; y: number; entry: ReportEntry } =>
+      p.entry !== undefined && !["NONE", "PENDING"].includes(p.entry.classification)
+  );
 
   return (
     <div className="mt-8 border-t border-hairline pt-6">
@@ -97,7 +108,9 @@ export default function GameReportPanel({
         <div>
           <p className="font-medium text-foreground">{whitePlayer}</p>
           <p className="mb-2 text-foreground/60">
-            {whiteAccuracy !== null ? `${whiteAccuracy.toFixed(1)}% approx. accuracy` : "Accuracy pending"}
+            {accuracyStillAnalyzing || whiteAccuracy === null
+              ? "Analyzing..."
+              : `${whiteAccuracy.toFixed(1)}% approx. accuracy`}
           </p>
           <ul className="space-y-1 text-xs">
             <li className="text-foreground/60">Clean moves: {whiteTally.none}</li>
@@ -109,7 +122,9 @@ export default function GameReportPanel({
         <div>
           <p className="font-medium text-foreground">{blackPlayer}</p>
           <p className="mb-2 text-foreground/60">
-            {blackAccuracy !== null ? `${blackAccuracy.toFixed(1)}% approx. accuracy` : "Accuracy pending"}
+            {accuracyStillAnalyzing || blackAccuracy === null
+              ? "Analyzing..."
+              : `${blackAccuracy.toFixed(1)}% approx. accuracy`}
           </p>
           <ul className="space-y-1 text-xs">
             <li className="text-foreground/60">Clean moves: {blackTally.none}</li>
