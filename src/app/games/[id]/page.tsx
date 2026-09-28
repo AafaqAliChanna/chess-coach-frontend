@@ -33,6 +33,23 @@ type CoachingResponse = {
   recommendation: string;
 };
 
+type HighlightTag = "BRILLIANT" | "GREAT";
+type HighlightEntry = {
+  plyNumber: number;
+  san: string;
+  fenBefore: string;
+  tag: HighlightTag;
+  sacrificeMargin: number | null;
+};
+type HighlightsResponse = {
+  gameId: number;
+  totalMovesChecked: number;
+  brilliantCount: number;
+  greatCount: number;
+  goodCount: number;
+  highlights: HighlightEntry[];
+};
+
 const CLASSIFICATION_STYLES: Record<ReportEntry["classification"], string> = {
   NONE: "border-l-transparent text-foreground/40",
   INACCURACY: "border-l-amber-600 text-amber-700",
@@ -57,11 +74,24 @@ const CLASSIFICATION_BADGE: Record<ReportEntry["classification"], { symbol: stri
   PENDING: null,
 };
 
+const HIGHLIGHT_ROW_STYLES: Record<HighlightTag, string> = {
+  BRILLIANT: "border-l-purple-600 text-purple-700",
+  GREAT: "border-l-blue-600 text-blue-700",
+};
+const HIGHLIGHT_SQUARE_COLOR: Record<HighlightTag, string> = {
+  BRILLIANT: "rgba(124, 58, 237, 0.35)",
+  GREAT: "rgba(37, 99, 235, 0.3)",
+};
+const HIGHLIGHT_BADGE: Record<HighlightTag, { symbol: string; color: string }> = {
+  BRILLIANT: { symbol: "!!", color: "#7c3aed" },
+  GREAT: { symbol: "!", color: "#2563eb" },
+};
+
 const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const BOARD_SIZE_PX = 400;
 const AUTOPLAY_INTERVAL_MS = 800;
-const ARROW_COLOR = "#2f4a3d";
+const ARROW_COLOR = "var(--board)";
 
 function getChangedSquares(fenBefore: string, fenAfter: string): string[] {
   const boardBefore = fenBefore.split(" ")[0];
@@ -147,6 +177,10 @@ export default function GamePage() {
   const [coaching, setCoaching] = useState<CoachingResponse | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(false);
   const [coachingError, setCoachingError] = useState("");
+
+  const [highlights, setHighlights] = useState<HighlightsResponse | null>(null);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
+  const [highlightsError, setHighlightsError] = useState("");
 
   const reportRef = useRef<ReportEntry[]>([]);
   useEffect(() => {
@@ -336,6 +370,22 @@ export default function GamePage() {
     }
   }
 
+  async function handleGetHighlights() {
+    setHighlightsLoading(true);
+    setHighlightsError("");
+    setHighlights(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/games/${gameId}/highlights`);
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      const data: HighlightsResponse = await response.json();
+      setHighlights(data);
+    } catch (err) {
+      setHighlightsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHighlightsLoading(false);
+    }
+  }
+
   function jumpToPly(plyNumber: number) {
     const index = moves.findIndex((m) => m.plyNumber === plyNumber);
     if (index === -1) return;
@@ -358,6 +408,10 @@ export default function GamePage() {
     !!classification &&
     ["INACCURACY", "MISTAKE", "BLUNDER"].includes(classification);
 
+  const highlightsByPly = new Map((highlights?.highlights ?? []).map((h) => [h.plyNumber, h]));
+  const currentHighlight =
+    selectedPly >= 0 ? highlightsByPly.get(moves[selectedPly]?.plyNumber) : undefined;
+
   const displayFen = showAlternative ? beforeFen : afterFen;
 
   const squareStyles: Record<string, React.CSSProperties> = {};
@@ -365,12 +419,20 @@ export default function GamePage() {
   let arrows: { startSquare: string; endSquare: string; color: string }[] = [];
 
   if (selectedPly >= 0 && !showAlternative) {
-    const squareColor = classification ? CLASSIFICATION_SQUARE_COLOR[classification] : null;
     const changedSquares = getChangedSquares(beforeFen, afterFen);
+    const squareColor = currentHighlight
+      ? HIGHLIGHT_SQUARE_COLOR[currentHighlight.tag]
+      : classification
+      ? CLASSIFICATION_SQUARE_COLOR[classification]
+      : null;
     if (squareColor) {
       for (const square of changedSquares) squareStyles[square] = { backgroundColor: squareColor };
     }
-    const badgeInfo = classification ? CLASSIFICATION_BADGE[classification] : null;
+    const badgeInfo = currentHighlight
+      ? HIGHLIGHT_BADGE[currentHighlight.tag]
+      : classification
+      ? CLASSIFICATION_BADGE[classification]
+      : null;
     if (badgeInfo) {
       const destSquare = findDestinationSquare(afterFen, changedSquares);
       if (destSquare) badge = { ...squareToPixel(destSquare), ...badgeInfo };
@@ -447,8 +509,17 @@ export default function GamePage() {
         </div>
       )}
 
-      <div className="flex items-start gap-12">
-        <div className="shrink-0">
+      <div className="flex items-start gap-10">
+        <div className="w-[400px] shrink-0">
+          <div className="mb-2 flex items-center justify-between border-b border-hairline px-1 pb-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/45">Black</p>
+              <p className="truncate font-serif text-base text-foreground" title={game.blackPlayer}>
+                {game.blackPlayer}
+              </p>
+            </div>
+            <span className="ml-3 h-3 w-3 shrink-0 rounded-full border border-foreground/30 bg-[#2b2b2b] shadow-sm" aria-hidden="true" />
+          </div>
           <div className="relative aspect-square w-[400px]">
             <Chessboard
               options={{
@@ -456,6 +527,8 @@ export default function GamePage() {
                 squareStyles,
                 arrows,
                 animationDurationInMs: 300,
+                darkSquareStyle: { backgroundColor: "var(--chess-dark-square)" },
+                lightSquareStyle: { backgroundColor: "var(--chess-light-square)" },
               }}
             />
             {badge && (
@@ -471,6 +544,15 @@ export default function GamePage() {
                 </span>
               </div>
             )}
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-hairline px-1 pt-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/45">White</p>
+              <p className="truncate font-serif text-base text-foreground" title={game.whitePlayer}>
+                {game.whitePlayer}
+              </p>
+            </div>
+            <span className="ml-3 h-3 w-3 shrink-0 rounded-full border border-foreground/30 bg-[#f5f1e8] shadow-sm" aria-hidden="true" />
           </div>
 
           {hasAlternative && (
@@ -490,6 +572,14 @@ export default function GamePage() {
             <p className="mt-2 text-xs text-foreground/50">
               Position before the move — green arrow is the engine's suggestion instead of{" "}
               <span className="font-mono">{moves[selectedPly]?.san}</span>.
+            </p>
+          )}
+          {currentHighlight && (
+            <p className="mt-2 text-xs text-foreground/60">
+              {currentHighlight.tag === "BRILLIANT" ? "Brilliant" : "Great"} move
+              {currentHighlight.tag === "BRILLIANT" && currentHighlight.sacrificeMargin !== null
+                ? ` — sacrificed material (margin: ${currentHighlight.sacrificeMargin}) and it worked.`
+                : "."}
             </p>
           )}
 
@@ -544,7 +634,7 @@ export default function GamePage() {
             )}
 
             {coaching && (
-              <div className="max-w-md space-y-4 text-sm">
+              <div className="w-full max-w-[400px] space-y-4 text-sm">
                 {coaching.strengths.length > 0 && (
                   <div>
                     <p className="mb-1 text-xs font-medium uppercase text-foreground/50">Strengths</p>
@@ -593,9 +683,84 @@ export default function GamePage() {
               </div>
             )}
           </div>
+
         </div>
 
-        <div className="max-w-md flex-1">
+        <div className="w-[340px] shrink-0">
+          <GameReportPanel
+            whitePlayer={game.whitePlayer}
+            blackPlayer={game.blackPlayer}
+            whiteAccuracy={whiteAccuracy}
+            blackAccuracy={blackAccuracy}
+            report={report}
+            onJumpToPly={jumpToPly}
+          />
+
+          <div className="mt-8 border-t border-hairline pt-4">
+            <h2 className="mb-2 font-serif text-lg text-foreground">Game Highlights</h2>
+            <p className="mb-2 text-xs text-foreground/50">
+              Chess.com-style Brilliant/Great move detection. This scans most of the game, so it's noticeably slower
+              than other analysis here — expect it to take a while, not a quick spinner.
+            </p>
+
+            {!highlights && !highlightsLoading && (
+              <button
+                onClick={handleGetHighlights}
+                disabled={anyPending}
+                className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark disabled:opacity-50"
+              >
+                Find Highlights
+              </button>
+            )}
+            {highlightsLoading && (
+              <p className="text-sm italic text-foreground/60">
+                Checking your best moves across the game — this can take a while…
+              </p>
+            )}
+            {highlightsError && (
+              <div>
+                <p className="mb-2 text-sm text-red-700">{highlightsError}</p>
+                <button onClick={handleGetHighlights} className="text-xs text-board hover:underline">
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {highlights && (
+              <div className="max-w-md text-sm">
+                <p className="mb-3 text-foreground/70">
+                  {highlights.brilliantCount} brilliant · {highlights.greatCount} great · {highlights.goodCount} good
+                  (of {highlights.totalMovesChecked} moves checked)
+                </p>
+                {highlights.highlights.length === 0 ? (
+                  <p className="text-foreground/50">No standout moves this game — still could've been solid throughout.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {highlights.highlights.map((h) => (
+                      <li key={h.plyNumber}>
+                        <button onClick={() => jumpToPly(h.plyNumber)} className="text-left hover:underline">
+                          <span
+                            className="mr-2 font-mono text-xs font-bold"
+                            style={{ color: HIGHLIGHT_BADGE[h.tag].color }}
+                          >
+                            {HIGHLIGHT_BADGE[h.tag].symbol}
+                          </span>
+                          <span className="font-mono text-foreground">{h.san}</span>{" "}
+                          <span className="text-foreground/50">
+                            ({h.tag === "BRILLIANT" ? "Brilliant" : "Great"}
+                            {h.sacrificeMargin !== null ? `, sac margin ${h.sacrificeMargin}` : ""})
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="w-[280px] shrink-0">
           {anyPending && (
             <p className="mb-3 text-sm italic text-foreground/50">Analysis in progress — updating automatically…</p>
           )}
@@ -618,20 +783,22 @@ export default function GamePage() {
               {moves.map((move, index) => {
                 const reportEntry = report.find((r) => r.plyNumber === move.plyNumber);
                 const moveClassification = reportEntry?.classification ?? "PENDING";
+                const highlight = highlightsByPly.get(move.plyNumber);
                 const explanation = explanationByPly.get(move.plyNumber);
                 const isExpanded = expandedExplanationPly === move.plyNumber;
+                const rowStyle = highlight ? HIGHLIGHT_ROW_STYLES[highlight.tag] : CLASSIFICATION_STYLES[moveClassification];
                 return (
                   <React.Fragment key={move.id}>
                     <tr
                       onClick={() => { setIsPlaying(false); setSelectedPly(index); }}
-                      className={`cursor-pointer border-b border-hairline border-l-4 ${CLASSIFICATION_STYLES[moveClassification]} ${
+                      className={`cursor-pointer border-b border-hairline border-l-4 ${rowStyle} ${
                         selectedPly === index ? "bg-brass/20" : "hover:bg-hairline/30"
                       }`}
                     >
                       <td className="py-2 pl-2 text-foreground/60">{move.plyNumber}</td>
                       <td className="font-mono text-foreground">{move.san}</td>
                       <td className="flex items-center gap-2">
-                        {moveClassification}
+                        {highlight ? (highlight.tag === "BRILLIANT" ? "Brilliant" : "Great") : moveClassification}
                         {explanation && (
                           <button
                             onClick={(e) => {
@@ -658,15 +825,8 @@ export default function GamePage() {
               })}
             </tbody>
           </table>
-          <GameReportPanel
-            whitePlayer={game.whitePlayer}
-            blackPlayer={game.blackPlayer}
-            whiteAccuracy={whiteAccuracy}
-            blackAccuracy={blackAccuracy}
-            report={report}
-            onJumpToPly={jumpToPly}
-          />
         </div>
+
       </div>
     </div>
   );
