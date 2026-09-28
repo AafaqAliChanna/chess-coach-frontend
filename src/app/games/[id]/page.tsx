@@ -25,6 +25,19 @@ type ReportEntry = {
   classification: "NONE" | "INACCURACY" | "MISTAKE" | "BLUNDER" | "PENDING";
 };
 
+type AccuracyResponse = {
+  gameId: number;
+  stillAnalyzing: boolean;
+  whiteAccuracy: number | null;
+  blackAccuracy: number | null;
+  evaluationSeries: {
+    plyNumber: number;
+    whiteWinPercent: number;
+    whiteCentipawns: number | null;
+    whiteMateIn: number | null;
+  }[];
+};
+
 type CoachingKeyMoment = { plyNumber: number; comment: string };
 type CoachingResponse = {
   strengths: string[];
@@ -145,11 +158,6 @@ function squareToPixel(square: string): { left: number; top: number; size: numbe
   return { left: file * size, top: (8 - rank) * size, size };
 }
 
-function moveAccuracyFromCpLoss(centipawnLoss: number): number {
-  const accuracy = 103.1668 * Math.exp(-0.04354 * centipawnLoss) - 3.1669;
-  return Math.max(0, Math.min(100, accuracy));
-}
-
 function parseUciSquares(uci: string): { from: string; to: string } {
   return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
 }
@@ -163,6 +171,7 @@ export default function GamePage() {
   const [game, setGame] = useState<Game | null>(null);
   const [moves, setMoves] = useState<Move[]>([]);
   const [report, setReport] = useState<ReportEntry[]>([]);
+  const [accuracy, setAccuracy] = useState<AccuracyResponse | null>(null);
   const [error, setError] = useState("");
   const [selectedPly, setSelectedPly] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -208,14 +217,20 @@ export default function GamePage() {
   useEffect(() => {
     let cancelled = false;
     function fetchReport() {
-      fetch(`${API_BASE_URL}/api/games/${gameId}/report`)
-        .then((res) => {
+      Promise.all([
+        fetch(`${API_BASE_URL}/api/games/${gameId}/report`).then((res) => {
           if (!res.ok) throw new Error(`Failed to load report: ${res.status}`);
-          return res.json();
-        })
-        .then((data: ReportEntry[]) => {
+          return res.json() as Promise<ReportEntry[]>;
+        }),
+        fetch(`${API_BASE_URL}/api/games/${gameId}/accuracy`).then((res) => {
+          if (!res.ok) throw new Error(`Failed to load accuracy: ${res.status}`);
+          return res.json() as Promise<AccuracyResponse>;
+        }),
+      ])
+        .then(([reportData, accuracyData]) => {
           if (cancelled) return;
-          setReport(data);
+          setReport(reportData);
+          setAccuracy(accuracyData);
         })
         .catch((err) => {
           if (!cancelled) setError(err.message);
@@ -444,15 +459,8 @@ export default function GamePage() {
     arrows = [{ startSquare: from, endSquare: to, color: ARROW_COLOR }];
   }
 
-  const whiteAccuracies = report
-    .filter((r) => r.plyNumber % 2 === 1 && r.classification !== "PENDING")
-    .map((r) => moveAccuracyFromCpLoss(r.centipawnLoss));
-  const blackAccuracies = report
-    .filter((r) => r.plyNumber % 2 === 0 && r.classification !== "PENDING")
-    .map((r) => moveAccuracyFromCpLoss(r.centipawnLoss));
-  const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
-  const whiteAccuracy = avg(whiteAccuracies);
-  const blackAccuracy = avg(blackAccuracies);
+  const whiteAccuracy = accuracy?.whiteAccuracy ?? null;
+  const blackAccuracy = accuracy?.blackAccuracy ?? null;
 
   const explanationByPly = new Map((coaching?.keyMoments ?? []).map((km) => [km.plyNumber, km.comment]));
 
@@ -498,13 +506,19 @@ export default function GamePage() {
         </div>
       </div>
 
-      {!anyPending && (whiteAccuracy !== null || blackAccuracy !== null) && (
+      {accuracy && (
         <div className="mb-8 flex gap-8 border-y border-hairline py-3 text-sm">
           <p className="text-foreground">
-            {game.whitePlayer} approx. accuracy: <span className="font-semibold">{whiteAccuracy !== null ? whiteAccuracy.toFixed(1) : "–"}%</span>
+            {game.whitePlayer} approx. accuracy:{" "}
+            <span className="font-semibold">
+              {accuracy.stillAnalyzing || whiteAccuracy === null ? "Analyzing..." : `${whiteAccuracy.toFixed(1)}%`}
+            </span>
           </p>
           <p className="text-foreground">
-            {game.blackPlayer} approx. accuracy: <span className="font-semibold">{blackAccuracy !== null ? blackAccuracy.toFixed(1) : "–"}%</span>
+            {game.blackPlayer} approx. accuracy:{" "}
+            <span className="font-semibold">
+              {accuracy.stillAnalyzing || blackAccuracy === null ? "Analyzing..." : `${blackAccuracy.toFixed(1)}%`}
+            </span>
           </p>
         </div>
       )}
@@ -692,6 +706,8 @@ export default function GamePage() {
             blackPlayer={game.blackPlayer}
             whiteAccuracy={whiteAccuracy}
             blackAccuracy={blackAccuracy}
+            accuracyStillAnalyzing={accuracy?.stillAnalyzing ?? true}
+            evaluationSeries={accuracy?.evaluationSeries ?? []}
             report={report}
             onJumpToPly={jumpToPly}
           />
