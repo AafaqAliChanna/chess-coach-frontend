@@ -11,6 +11,23 @@
   --sidebar-text: #ede9e2;
   --sidebar-muted: rgba(237, 233, 226, 0.5);
   --sidebar-active: rgba(255, 255, 255, 0.08);
+  --chess-light-square: #eadbc3;
+  --chess-dark-square: #9b7654;
+}
+
+[data-theme="dark"] {
+  --background: #171a18;
+  --foreground: #e9e5dc;
+  --board: #86a894;
+  --board-dark: #587765;
+  --brass: #d5ad73;
+  --hairline: #343b36;
+  --sidebar-bg: #202622;
+  --sidebar-text: #eeeae1;
+  --sidebar-muted: rgba(238, 234, 225, 0.58);
+  --sidebar-active: rgba(238, 234, 225, 0.1);
+  --chess-light-square: #d8c6aa;
+  --chess-dark-square: #6e5748;
 }
 
 @theme inline {
@@ -33,4 +50,21 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="dark"] .text-red-700 {
+  color: #f28b82;
+}
+
+[data-theme="dark"] .text-orange-700 {
+  color: #f0a36c;
+}
+
+[data-theme="dark"] .text-amber-700 {
+  color: #e7c477;
 }
