@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
-import { getMyPlayerName } from "@/lib/profile";
 import { useAuth } from "@/components/AuthProvider";
 import RetryBoard, { type AttemptResult } from "@/components/RetryBoard";
 
@@ -72,8 +71,8 @@ type SessionExerciseResult = { entry: MistakeEntry; result: AttemptResult | null
 type Stage = "loading" | "picking" | "session" | "summary" | "not-deployed" | "empty";
 
 export default function TrainingPage() {
-  const [playerName, setPlayerName] = useState<string | null>(null);
   const { user } = useAuth();
+  const playerName = user?.playerName ?? null;
   const router = useRouter();
 
   const [patternCounts, setPatternCounts] = useState<Record<PatternTag, number> | null>(null);
@@ -85,10 +84,6 @@ export default function TrainingPage() {
   const [index, setIndex] = useState(0);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState("");
-
-  useEffect(() => {
-    setPlayerName(getMyPlayerName());
-  }, []);
 
   useEffect(() => {
     if (!playerName) return;

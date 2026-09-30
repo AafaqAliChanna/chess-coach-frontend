@@ -5,6 +5,7 @@ export type AuthUser = {
   userId: number;
   email: string;
   displayName: string | null;
+  playerName: string | null;
 };
 
 export function saveAuth(user: AuthUser) {

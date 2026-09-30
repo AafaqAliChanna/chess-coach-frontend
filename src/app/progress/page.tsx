@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
-import { getMyPlayerName } from "@/lib/profile";
+import { useAuth } from "@/components/AuthProvider";
 
 type PatternTag = "MISSED_MATE" | "ALLOWED_MATE" | "HANGING_PIECE" | "POSITIONAL";
 
@@ -91,15 +91,12 @@ function fmtDate(iso: string): string {
 }
 
 export default function ProgressPage() {
-  const [playerName, setPlayerName] = useState<string | null>(null);
+  const { user } = useAuth();
+  const playerName = user?.playerName ?? null;
   const [windowSize, setWindowSize] = useState<WindowSize>(20);
   const [data, setData] = useState<ProgressResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    setPlayerName(getMyPlayerName());
-  }, []);
 
   useEffect(() => {
     if (!playerName) return;

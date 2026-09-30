@@ -4,7 +4,6 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
-import { getMyPlayerName } from "@/lib/profile";
 import { useAuth } from "@/components/AuthProvider";
 import RetryBoard from "@/components/RetryBoard";
 
@@ -150,7 +149,6 @@ function MistakeCard({
 function MistakeLibraryContent() {
   const searchParams = useSearchParams();
 
-  const [playerName, setPlayerName] = useState<string | null>(null);
   const [phaseFilter, setPhaseFilter] = useState<Phase | "">("");
   const [tagFilter, setTagFilter] = useState<PatternTag | "">("");
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -163,11 +161,8 @@ function MistakeLibraryContent() {
   const [offset, setOffset] = useState(0);
 
   const { user } = useAuth();
+  const playerName = user?.playerName ?? null;
   const router = useRouter();
-
-  useEffect(() => {
-    setPlayerName(getMyPlayerName());
-  }, []);
 
   useEffect(() => {
     const paramPattern = searchParams.get("pattern");

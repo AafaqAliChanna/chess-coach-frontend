@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
-import { getMyPlayerName } from "@/lib/profile";
+import { useAuth } from "@/components/AuthProvider";
 import type { Game } from "@/lib/types";
 
 type Phase = "OPENING" | "MIDDLEGAME" | "ENDGAME";
@@ -49,11 +49,8 @@ export default function DashboardPage() {
   const [games, setGames] = useState<Game[] | null>(null);
   const [patterns, setPatterns] = useState<PatternsResponse | null>(null);
   const [error, setError] = useState("");
-  const [playerName, setPlayerName] = useState<string | null>(null);
-
-  useEffect(() => {
-    setPlayerName(getMyPlayerName());
-  }, []);
+  const { user } = useAuth();
+  const playerName = user?.playerName ?? null;
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/games`)

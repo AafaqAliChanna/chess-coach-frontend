@@ -29,7 +29,10 @@ export default function LoginPage() {
         throw new Error(body?.message || "Invalid email or password");
       }
       const data = await response.json();
-      login(data);
+      login({
+        ...data,
+        playerName: data.playerName ?? null,
+      });
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { getMyPlayerName, setMyPlayerName } from "@/lib/profile";
+import { API_BASE_URL } from "@/lib/api";
 
 // Deterministic color from a string so the same user always gets the same
 // avatar color across sessions, without needing to store a color choice
@@ -25,10 +25,12 @@ function initialsFor(displayName: string | null, email: string): string {
 }
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const router = useRouter();
-  const [playerName, setPlayerNameState] = useState("");
+  const [playerName, setPlayerNameState] = useState(user?.playerName ?? "");
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -38,13 +40,44 @@ export default function ProfilePage() {
   }, [user, router]);
 
   useEffect(() => {
-    setPlayerNameState(getMyPlayerName() || "");
-  }, []);
+    setPlayerNameState(user?.playerName ?? "");
+  }, [user?.playerName]);
 
-  function handleSave() {
-    setMyPlayerName(playerName.trim());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  async function handleSave() {
+    if (!user) return;
+
+    setSaving(true);
+    setSaved(false);
+    setError("");
+
+    const nextPlayerName = playerName.trim() || null;
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ playerName: nextPlayerName }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message || `Server returned ${response.status}`);
+      }
+
+      const updatedUser = await response.json();
+      updateUser({
+        ...user,
+        playerName: updatedUser.playerName ?? nextPlayerName,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!user) return <p className="p-8 text-foreground">Loading…</p>;
@@ -106,13 +139,14 @@ export default function ProfilePage() {
           onClick={handleSave}
           className="mt-3 bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark"
         >
-          {saved ? "Saved ✓" : "Save"}
+          {saving ? "Saving…" : saved ? "Saved ✓" : "Save"}
         </button>
+        {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
       </div>
 
       <p className="mt-6 text-xs text-foreground/40">
         Games aren't linked to your account yet — that's coming once the backend adds ownership. The player name
-        above is stored locally in your browser, not on the server.
+        above is stored on your account.
       </p>
     </div>
   );

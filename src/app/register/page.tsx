@@ -30,7 +30,10 @@ export default function RegisterPage() {
         throw new Error(body?.message || `Server returned ${response.status}`);
       }
       const data = await response.json();
-      login(data);
+      login({
+        ...data,
+        playerName: data.playerName ?? null,
+      });
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
