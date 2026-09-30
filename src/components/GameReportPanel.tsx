@@ -23,6 +23,7 @@ type Props = {
   whiteAccuracy: number | null;
   blackAccuracy: number | null;
   accuracyStillAnalyzing: boolean;
+  analysisStatus: string | null;
   evaluationSeries: EvaluationEntry[];
   report: ReportEntry[];
   onJumpToPly: (plyNumber: number) => void;
@@ -81,6 +82,7 @@ export default function GameReportPanel({
   whiteAccuracy,
   blackAccuracy,
   accuracyStillAnalyzing,
+  analysisStatus,
   evaluationSeries,
   report,
   onJumpToPly,
@@ -102,6 +104,7 @@ export default function GameReportPanel({
   return (
     <div className="mt-8 border-t border-hairline pt-6">
       <h2 className="mb-4 font-serif text-lg text-foreground">Game report</h2>
+      {analysisStatus && <p className="mb-4 text-sm italic text-foreground/60">{analysisStatus}</p>}
 
       {/* Player comparison */}
       <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
