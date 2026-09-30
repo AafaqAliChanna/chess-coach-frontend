@@ -38,10 +38,7 @@ export default function Home() {
 
   const [chesscomUsername, setChesscomUsername] = useState("");
   const [timeClass, setTimeClass] = useState<TimeClass>("rapid");
-  // "YYYY-MM" or "" (empty means: let the backend use its default, the
-  // previous calendar month). Native <input type="month"> already gives us
-  // this exact format, so no parsing needed.
-  const [month, setMonth] = useState("");
+  const [count, setCount] = useState(20);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importError, setImportError] = useState("");
@@ -108,8 +105,8 @@ export default function Home() {
       const params = new URLSearchParams({
         username: chesscomUsername.trim(),
         timeClass,
+        count: String(count),
       });
-      if (month) params.set("month", month);
 
       const response = await fetch(`${API_BASE_URL}/api/games/import/chesscom?${params.toString()}`, {
         method: "POST",
@@ -153,7 +150,7 @@ export default function Home() {
       <div className="mb-12 border border-hairline p-6">
         <h2 className="mb-1 font-serif text-xl text-foreground">Import from Chess.com</h2>
         <p className="mb-4 text-sm text-foreground/60">
-          Pulls a month of games for a Chess.com username. Safe to run repeatedly — duplicates are skipped
+          Pulls recent games for a Chess.com username. Safe to run repeatedly — duplicates are skipped
           automatically.
         </p>
         <form onSubmit={handleImport} className="flex flex-wrap gap-2">
@@ -173,13 +170,16 @@ export default function Home() {
             <option value="bullet">Bullet</option>
             <option value="daily">Daily</option>
           </select>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            title="Defaults to last month if left blank"
+          <select
+            value={count}
+            onChange={(e) => setCount(Number(e.target.value))}
+            aria-label="Number of games to import"
             className="border border-hairline bg-background p-2 text-sm text-foreground focus:border-board focus:outline-none"
-          />
+          >
+            <option value={10}>10 games</option>
+            <option value={20}>20 games</option>
+            <option value={30}>30 games</option>
+          </select>
           <button
             type="submit"
             disabled={importing}
@@ -189,8 +189,7 @@ export default function Home() {
           </button>
         </form>
         <p className="mt-2 text-xs text-foreground/40">
-          Leave the month blank to default to last calendar month — pick the current month explicitly if you've
-          played recently and want this month's games.
+          Imports your most recent games of this time class, walking back through your history if needed.
         </p>
 
         {importError && <p className="mt-3 text-sm text-red-700">{importError}</p>}
@@ -199,14 +198,14 @@ export default function Home() {
           <div className="mt-3 text-sm text-foreground">
             <p>
               Found {importResult.gamesFoundForTimeClass} {timeClass} game
-              {importResult.gamesFoundForTimeClass === 1 ? "" : "s"} on Chess.com for that month · imported{" "}
+              {importResult.gamesFoundForTimeClass === 1 ? "" : "s"} on Chess.com · imported{" "}
               {importResult.imported} new
               {importResult.skippedAsDuplicate > 0 && ` (${importResult.skippedAsDuplicate} already had them)`}.
             </p>
             {importResult.gamesFoundForTimeClass === 0 && (
               <p className="mt-1 text-xs text-foreground/50">
                 Zero games found — double-check the username's exact spelling/case, the time class matches what you
-                actually played, and the month is right (nothing selected defaults to last month, not this one).
+                actually played, and that the account has games in its history.
               </p>
             )}
             {importResult.imported > 0 && (
