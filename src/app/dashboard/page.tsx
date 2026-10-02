@@ -5,14 +5,7 @@ import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import type { Game } from "@/lib/types";
-
-type Phase = "OPENING" | "MIDDLEGAME" | "ENDGAME";
-type Severity = "INACCURACY" | "MISTAKE" | "BLUNDER";
-type PatternsResponse = {
-  gamesFound: number;
-  gamesAnalyzed: number;
-  mistakesByPhase: Record<Phase, Record<Severity, number>>;
-};
+import PatternFocusCallout from "@/components/PatternFocusCallout";
 
 function computeRecord(games: Game[], name: string) {
   let wins = 0;
@@ -34,20 +27,8 @@ function computeRecord(games: Game[], name: string) {
   return { wins, losses, draws, total, winRate: total > 0 ? (wins / total) * 100 : null };
 }
 
-function findBiggestPattern(data: PatternsResponse): { phase: Phase; severity: Severity; count: number } | null {
-  let best: { phase: Phase; severity: Severity; count: number } | null = null;
-  for (const phase of ["OPENING", "MIDDLEGAME", "ENDGAME"] as Phase[]) {
-    for (const severity of ["INACCURACY", "MISTAKE", "BLUNDER"] as Severity[]) {
-      const count = data.mistakesByPhase[phase]?.[severity] ?? 0;
-      if (!best || count > best.count) best = { phase, severity, count };
-    }
-  }
-  return best && best.count > 0 ? best : null;
-}
-
 export default function DashboardPage() {
   const [games, setGames] = useState<Game[] | null>(null);
-  const [patterns, setPatterns] = useState<PatternsResponse | null>(null);
   const [error, setError] = useState("");
   const { user } = useAuth();
   const playerName = user?.playerName ?? null;
@@ -62,28 +43,13 @@ export default function DashboardPage() {
       .catch((err) => setError(err.message));
   }, []);
 
-  useEffect(() => {
-    if (!playerName) return;
-    fetch(`${API_BASE_URL}/api/players/${encodeURIComponent(playerName)}/patterns`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then(setPatterns)
-      .catch(() => {});
-  }, [playerName]);
-
   if (error) return <p className="p-8 text-red-700">{error}</p>;
   if (!games) return <p className="p-8 text-foreground">Loading…</p>;
 
   const record = playerName ? computeRecord(games, playerName) : null;
-  const biggestPattern = patterns ? findBiggestPattern(patterns) : null;
-
   const recent = [...games]
     .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
     .slice(0, 5);
-
-  const trainingHref =
-    playerName && biggestPattern
-      ? `/training?name=${encodeURIComponent(playerName)}&phase=${biggestPattern.phase}`
-      : null;
 
   return (
     <div className="px-8 py-12">
@@ -100,37 +66,7 @@ export default function DashboardPage() {
         </p>
       )}
 
-      <div className="mb-10 border border-hairline bg-board/5 p-6">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">Your top focus</p>
-        {!playerName ? (
-          <p className="text-sm text-foreground/70">Set your player name in Profile to see this.</p>
-        ) : !patterns ? (
-          <p className="text-sm text-foreground/70">Loading…</p>
-        ) : biggestPattern ? (
-          <>
-            <p className="mb-4 text-lg text-foreground">
-              You lose the most ground to <span className="font-semibold">{biggestPattern.severity.toLowerCase()}</span>{" "}
-              moves in the <span className="font-semibold">{biggestPattern.phase.toLowerCase()}</span> — {biggestPattern.count}{" "}
-              found in your analyzed games so far.
-            </p>
-            <div className="flex gap-3">
-              {trainingHref && (
-                <Link
-                  href={trainingHref}
-                  className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark"
-                >
-                  Practice this
-                </Link>
-              )}
-              <Link href="/chess-dna" className="border border-hairline px-4 py-2 text-sm text-foreground hover:bg-hairline/30">
-                See full breakdown
-              </Link>
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-foreground/70">No mistakes found yet for this name.</p>
-        )}
-      </div>
+      <PatternFocusCallout playerName={playerName} />
 
       <div className="mb-10 grid grid-cols-3 gap-4">
         <div className="border border-hairline p-4">
