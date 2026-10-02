@@ -9,6 +9,7 @@ export type AttemptResult = {
   wasCorrect: boolean;
   correctMoveUci: string;
   attemptedMoveUci: string;
+  betterLine: EngineLine | null;
 };
 
 type EngineLine = {
@@ -49,22 +50,22 @@ function formatEval(line: EngineLine): string {
 
 export default function RetryBoard({
   fenBefore,
-  bestMoveUci,
   gameId,
   plyNumber,
   token = null,
   onAuthRequired = () => {},
   onResult,
   interactive = true,
+  orientation = "white",
 }: {
   fenBefore: string;
-  bestMoveUci: string;
   gameId: number;
   plyNumber: number;
   token?: string | null;
   onAuthRequired?: () => void;
   onResult?: (result: AttemptResult) => void;
   interactive?: boolean;
+  orientation?: "white" | "black";
 }) {
   const [selected, setSelected] = useState<{ square: string; pieceType: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -75,14 +76,13 @@ export default function RetryBoard({
   const [linesData, setLinesData] = useState<EngineLine[] | null>(null);
   const [linesLoading, setLinesLoading] = useState(false);
   const [linesError, setLinesError] = useState("");
+  const [betterLine, setBetterLine] = useState<EngineLine | null>(null);
 
   // step = -1 means "before any move in the line" (the original position,
   // with an arrow for the first move). step = N means "after movesUci[N]
   // has been played" (board shows fensAfterEachMove[N], arrow — if any move
   // remains — for movesUci[N+1]).
   const [activeLine, setActiveLine] = useState<{ lineIndex: number; step: number } | null>(null);
-
-  const { from: bestFrom, to: bestTo } = bestMoveSquares(bestMoveUci);
 
   async function submitAttempt(sourceSquare: string, targetSquare: string, pieceType: string) {
     if (!token) {
@@ -108,8 +108,11 @@ export default function RetryBoard({
         wasCorrect: data.wasCorrect,
         correctMoveUci: data.correctMoveUci,
         attemptedMoveUci: data.attemptedMoveUci,
+        betterLine: data.betterLine ?? null,
       };
       setResult(r);
+      setBetterLine(r.betterLine);
+      if (r.betterLine) setActiveLine({ lineIndex: -1, step: -1 });
       onResult?.(r);
     } catch (err) {
       setAttemptError(err instanceof Error ? err.message : String(err));
@@ -149,7 +152,9 @@ export default function RetryBoard({
   function resetRetry() {
     setSelected(null);
     setResult(null);
+    setBetterLine(null);
     setAttemptError("");
+    setActiveLine(null);
   }
 
   async function toggleLines() {
@@ -193,7 +198,8 @@ export default function RetryBoard({
   const squareStyles: Record<string, React.CSSProperties> = {};
   let arrows: { startSquare: string; endSquare: string; color: string }[] = [];
   const canShowLinesButton = !interactive || result !== null;
-  const activeLineData = activeLine !== null ? linesData?.[activeLine.lineIndex] ?? null : null;
+  const activeLineData =
+    activeLine?.lineIndex === -1 ? betterLine : activeLine !== null ? linesData?.[activeLine.lineIndex] ?? null : null;
 
   if (activeLine !== null && activeLineData) {
     const { step } = activeLine;
@@ -205,7 +211,6 @@ export default function RetryBoard({
     }
   } else if (!interactive) {
     displayPosition = fenBefore;
-    arrows = [{ startSquare: bestFrom, endSquare: bestTo, color: ARROW_COLOR }];
   } else {
     displayPosition = fenBefore;
     if (selected) {
@@ -213,10 +218,12 @@ export default function RetryBoard({
     }
     if (result) {
       if (result.wasCorrect) {
-        squareStyles[bestFrom] = { backgroundColor: "rgba(47, 74, 61, 0.5)" };
-        squareStyles[bestTo] = { backgroundColor: "rgba(47, 74, 61, 0.5)" };
+        const { from, to } = bestMoveSquares(result.correctMoveUci);
+        squareStyles[from] = { backgroundColor: "rgba(47, 74, 61, 0.5)" };
+        squareStyles[to] = { backgroundColor: "rgba(47, 74, 61, 0.5)" };
       } else {
-        arrows = [{ startSquare: bestFrom, endSquare: bestTo, color: ARROW_COLOR }];
+        const { from, to } = bestMoveSquares(result.correctMoveUci);
+        arrows = [{ startSquare: from, endSquare: to, color: ARROW_COLOR }];
         const { from: attFrom, to: attTo } = bestMoveSquares(result.attemptedMoveUci);
         squareStyles[attFrom] = { backgroundColor: "rgba(153, 27, 27, 0.4)" };
         squareStyles[attTo] = { backgroundColor: "rgba(153, 27, 27, 0.4)" };
@@ -230,6 +237,7 @@ export default function RetryBoard({
         <Chessboard
           options={{
             position: displayPosition,
+            boardOrientation: orientation,
             squareStyles,
             arrows,
             allowDragging: interactive && !result && !submitting && !activeLine,
@@ -250,7 +258,7 @@ export default function RetryBoard({
               ← Prev
             </button>
             <span className="font-mono text-xs text-foreground">
-              {activeLine!.step === -1 ? "Start" : activeLineData.movesSan[activeLine!.step]}
+              {activeLine!.step === -1 ? (activeLine!.lineIndex === -1 ? "Better line" : "Start") : activeLineData.movesSan[activeLine!.step]}
             </span>
             <button
               onClick={() => stepLine(1, activeLineData.movesUci.length - 1)}
@@ -289,7 +297,10 @@ export default function RetryBoard({
                 </p>
               )}
               <p className="text-foreground">
-                Best was: <span className="font-mono">{bestFrom} → {bestTo}</span>
+                Best was:{" "}
+                <span className="font-mono">
+                  {bestMoveSquares(result.correctMoveUci).from} → {bestMoveSquares(result.correctMoveUci).to}
+                </span>
               </p>
               <button onClick={resetRetry} className="mt-1 text-xs text-board hover:underline">
                 Try again
