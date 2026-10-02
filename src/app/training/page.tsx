@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import RetryBoard, { type AttemptResult } from "@/components/RetryBoard";
@@ -15,10 +15,12 @@ type MistakeEntry = {
   gameId: number;
   gameTitle: string;
   uploadedAt: string;
+  whitePlayer: string;
+  blackPlayer: string;
+  playerColor: "WHITE" | "BLACK";
   plyNumber: number;
   fenBefore: string;
   playerMove: string;
-  bestMoveUci: string;
   classification: Classification;
   gamePhase: Phase;
   patternTag: PatternTag;
@@ -26,11 +28,7 @@ type MistakeEntry = {
   winPercentLoss: number;
 };
 
-type MistakeLibraryResponse = {
-  totalMistakes: number;
-  patternCounts: Record<PatternTag, number>;
-  entries: MistakeEntry[];
-};
+type TrainingExercise = MistakeEntry;
 
 const PATTERN_LABELS: Record<PatternTag, string> = {
   HANGING_PIECE: "Hanging Piece",
@@ -70,60 +68,86 @@ const SESSION_SIZE = 5;
 type SessionExerciseResult = { entry: MistakeEntry; result: AttemptResult | null };
 type Stage = "loading" | "picking" | "session" | "summary" | "not-deployed" | "empty";
 
+function sideToMove(fen: string): { label: "White" | "Black"; orientation: "white" | "black" } {
+  return fen.split(" ")[1] === "b"
+    ? { label: "Black", orientation: "black" }
+    : { label: "White", orientation: "white" };
+}
+
+function playerNameForColor(entry: MistakeEntry, color: "White" | "Black"): string {
+  return color === "White" ? entry.whitePlayer : entry.blackPlayer;
+}
+
 export default function TrainingPage() {
   const { user } = useAuth();
   const playerName = user?.playerName ?? null;
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const gameId = searchParams.get("gameId");
+  const isGameTraining = Boolean(gameId);
 
   const [patternCounts, setPatternCounts] = useState<Record<PatternTag, number> | null>(null);
   const [countsError, setCountsError] = useState("");
 
   const [stage, setStage] = useState<Stage>("loading");
   const [selectedPattern, setSelectedPattern] = useState<PatternTag | null>(null);
+  const [historyExercises, setHistoryExercises] = useState<MistakeEntry[]>([]);
   const [session, setSession] = useState<SessionExerciseResult[]>([]);
   const [index, setIndex] = useState(0);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
+    if (!playerName && !isGameTraining) return;
+    if (isGameTraining && gameId) {
+      fetch(`${API_BASE_URL}/api/games/${encodeURIComponent(gameId)}/training?limit=3`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Server returned ${res.status}`);
+          return res.json() as Promise<TrainingExercise[]>;
+        })
+        .then((exercises) => {
+          setSession(exercises.map((entry) => ({ entry, result: null })));
+          setIndex(0);
+          setStage(exercises.length > 0 ? "session" : "empty");
+        })
+        .catch((err) => setCountsError(err instanceof Error ? err.message : String(err)));
+      return;
+    }
     if (!playerName) return;
-    fetch(`${API_BASE_URL}/api/players/${encodeURIComponent(playerName)}/mistake-library?limit=1`)
+    fetch(`${API_BASE_URL}/api/players/${encodeURIComponent(playerName)}/training`)
       .then((res) => {
         if (res.status === 404) {
           setStage("not-deployed");
           return null;
         }
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
-        return res.json();
+        return res.json() as Promise<TrainingExercise[]>;
       })
-      .then((json: MistakeLibraryResponse | null) => {
-        if (!json) return;
-        setPatternCounts(json.patternCounts);
-        const hasAny = ACTIONABLE_PATTERNS.some((t) => (json.patternCounts[t] ?? 0) > 0);
+      .then((exercises) => {
+        if (!exercises) return;
+        setHistoryExercises(exercises);
+        const counts = exercises.reduce<Record<PatternTag, number>>(
+          (result, entry) => {
+            const tag = entry.patternTag;
+            if (tag) result[tag] = (result[tag] ?? 0) + 1;
+            return result;
+          },
+          { HANGING_PIECE: 0, MISSED_MATE: 0, ALLOWED_MATE: 0, POSITIONAL: 0 }
+        );
+        setPatternCounts(counts);
+        const hasAny = ACTIONABLE_PATTERNS.some((tag) => (counts[tag] ?? 0) > 0);
         setStage(hasAny ? "picking" : "empty");
       })
       .catch((err) => setCountsError(err instanceof Error ? err.message : String(err)));
-  }, [playerName]);
+  }, [gameId, isGameTraining, playerName]);
 
   async function startSession(pattern: PatternTag) {
-    if (!playerName) return;
     setSelectedPattern(pattern);
-    setSessionLoading(true);
     setSessionError("");
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/players/${encodeURIComponent(playerName)}/mistake-library?pattern=${pattern}&limit=${SESSION_SIZE}`
-      );
-      if (!response.ok) throw new Error(`Server returned ${response.status}`);
-      const json: MistakeLibraryResponse = await response.json();
-      setSession(json.entries.map((entry) => ({ entry, result: null })));
-      setIndex(0);
-      setStage("session");
-    } catch (err) {
-      setSessionError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSessionLoading(false);
-    }
+    const entries = historyExercises.filter((entry) => entry.patternTag === pattern).slice(0, SESSION_SIZE);
+    setSession(entries.map((entry) => ({ entry, result: null })));
+    setIndex(0);
+    setStage("session");
   }
 
   function recordResult(result: AttemptResult) {
@@ -139,17 +163,31 @@ export default function TrainingPage() {
   }
 
   function backToPicker() {
+    if (isGameTraining && gameId) {
+      router.push(`/games/${gameId}`);
+      return;
+    }
     setStage("picking");
     setSelectedPattern(null);
     setSession([]);
     setIndex(0);
   }
 
+  function restartSession() {
+    if (selectedPattern) {
+      startSession(selectedPattern);
+      return;
+    }
+    setSession(historyExercises.slice(0, SESSION_SIZE).map((entry) => ({ entry, result: null })));
+    setIndex(0);
+    setStage("session");
+  }
+
   function requireAuth() {
     router.push("/login");
   }
 
-  if (!playerName) {
+  if (!playerName && !isGameTraining) {
     return (
       <div className="px-8 py-12">
         <h1 className="mb-4 font-serif text-3xl text-foreground">Training</h1>
@@ -169,7 +207,7 @@ export default function TrainingPage() {
       <div className="px-8 py-12">
         <h1 className="mb-4 font-serif text-3xl text-foreground">Training</h1>
         <p className="max-w-md border border-hairline bg-brass/10 p-4 text-sm text-foreground">
-          This feature is waiting on a backend update. Check back once it's live.
+          This feature is waiting on a backend update. Check back once it&apos;s live.
         </p>
       </div>
     );
@@ -235,18 +273,19 @@ export default function TrainingPage() {
     );
   }
 
-  if (stage === "session" && selectedPattern) {
+  if (stage === "session" && (selectedPattern || isGameTraining)) {
     const current = session[index];
     if (!current) return null;
+    const pattern = selectedPattern;
 
     return (
       <div className="px-8 py-12">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="font-serif text-2xl text-foreground">
-            {PATTERN_LABELS[selectedPattern]} — {index + 1}/{session.length}
+            {pattern ? PATTERN_LABELS[pattern] : "Game mistakes"} — {index + 1}/{session.length}
           </h1>
           <button onClick={backToPicker} className="text-xs text-foreground/60 hover:underline">
-            Choose a different pattern
+            {selectedPattern ? "Choose a different pattern" : "Back to training"}
           </button>
         </div>
 
@@ -261,13 +300,25 @@ export default function TrainingPage() {
               </Link>
             </div>
             <p className="mb-4 text-sm font-semibold text-foreground">{current.entry.gameTitle}</p>
+            <div className="mb-3 border border-board/40 bg-board/5 px-3 py-2 text-xs text-foreground">
+              <p className="font-semibold text-board">
+                Play as {current.entry.playerColor === "WHITE" ? "White" : "Black"} —{" "}
+                {playerNameForColor(current.entry, current.entry.playerColor === "WHITE" ? "White" : "Black")}
+              </p>
+              <p className="mt-1 text-foreground/70">
+                White: {current.entry.whitePlayer} · Black: {current.entry.blackPlayer}
+              </p>
+              <p className="mt-1 text-foreground/60">
+                {sideToMove(current.entry.fenBefore).label} to move — find the best move for this position.
+              </p>
+            </div>
 
             <RetryBoard
               key={`${current.entry.gameId}-${current.entry.plyNumber}`}
               fenBefore={current.entry.fenBefore}
-              bestMoveUci={current.entry.bestMoveUci}
               gameId={current.entry.gameId}
               plyNumber={current.entry.plyNumber}
+              orientation={sideToMove(current.entry.fenBefore).orientation}
               token={user?.token ?? null}
               onAuthRequired={requireAuth}
               onResult={recordResult}
@@ -275,7 +326,7 @@ export default function TrainingPage() {
 
             {current.result && (
               <>
-                <p className="mt-3 text-xs text-foreground/60">{PATTERN_EXPLANATIONS[selectedPattern]}</p>
+                {pattern && <p className="mt-3 text-xs text-foreground/60">{PATTERN_EXPLANATIONS[pattern]}</p>}
                 <button onClick={goNext} className="mt-4 bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark">
                   {index < session.length - 1 ? "Next position →" : "See session results →"}
                 </button>
@@ -284,12 +335,12 @@ export default function TrainingPage() {
           </div>
 
           <div className="space-y-6">
-            {PATTERN_TIPS[selectedPattern] && (
+            {pattern && PATTERN_TIPS[pattern] && (
               <div className="border border-hairline p-4">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">
                   How to avoid this pattern
                 </p>
-                <p className="text-sm text-foreground/80">{PATTERN_TIPS[selectedPattern]}</p>
+                <p className="text-sm text-foreground/80">{PATTERN_TIPS[pattern]}</p>
               </div>
             )}
 
@@ -325,12 +376,12 @@ export default function TrainingPage() {
     );
   }
 
-  if (stage === "summary" && selectedPattern) {
+  if (stage === "summary" && (selectedPattern || isGameTraining)) {
     const correctCount = session.filter((s) => s.result?.wasCorrect).length;
     return (
       <div className="px-8 py-12">
         <h1 className="mb-1 font-serif text-3xl text-foreground">Session complete</h1>
-        <p className="mb-8 text-sm text-foreground/60">{PATTERN_LABELS[selectedPattern]} practice</p>
+        <p className="mb-8 text-sm text-foreground/60">{selectedPattern ? PATTERN_LABELS[selectedPattern] : "Game mistakes"} practice</p>
 
         <div className="mb-8 max-w-sm border border-hairline bg-board/5 p-6">
           <p className="text-3xl font-serif text-foreground">
@@ -356,7 +407,7 @@ export default function TrainingPage() {
 
         <div className="flex gap-3">
           <button
-            onClick={() => startSession(selectedPattern)}
+            onClick={restartSession}
             className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark"
           >
             Practice again
