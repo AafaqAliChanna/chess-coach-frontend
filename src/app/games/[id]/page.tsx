@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Chessboard } from "react-chessboard";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -50,6 +51,12 @@ type CoachingLine = {
   movesUci: string[];
   fensAfterEachMove: string[];
 };
+type CoachingEntitlements = {
+  plan: "FREE" | "PRO" | "ULTIMATE";
+  dailyCoachingLimit: number;
+  coachingUsedToday: number;
+  coachingRemainingToday: number;
+};
 
 function isCoachingResponse(value: unknown): value is CoachingResponse {
   if (!value || typeof value !== "object") return false;
@@ -68,6 +75,17 @@ function isCoachingResponse(value: unknown): value is CoachingResponse {
         typeof (item as Record<string, unknown>).comment === "string"
     ) &&
     typeof response.recommendation === "string"
+  );
+}
+
+function isCoachingEntitlements(value: unknown): value is CoachingEntitlements {
+  if (!value || typeof value !== "object") return false;
+  const response = value as Record<string, unknown>;
+  return (
+    (response.plan === "FREE" || response.plan === "PRO" || response.plan === "ULTIMATE") &&
+    typeof response.dailyCoachingLimit === "number" &&
+    typeof response.coachingUsedToday === "number" &&
+    typeof response.coachingRemainingToday === "number"
   );
 }
 
@@ -202,6 +220,7 @@ function parseUciSquares(uci: string): { from: string; to: string } {
 export default function GamePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const gameId = params.id;
   const { user } = useAuth();
 
@@ -224,9 +243,22 @@ export default function GamePage() {
   const [showAlternative, setShowAlternative] = useState(false);
   const [expandedExplanationPly, setExpandedExplanationPly] = useState<number | null>(null);
 
+  const requestedPly = searchParams.get("ply");
+  useEffect(() => {
+    if (!requestedPly || moves.length === 0) return;
+    const plyNumber = Number(requestedPly);
+    const moveIndex = moves.findIndex((move) => move.plyNumber === plyNumber);
+    if (moveIndex < 0) return;
+    const timeoutId = window.setTimeout(() => setSelectedPly(moveIndex), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [moves, requestedPly]);
+
   const [coaching, setCoaching] = useState<CoachingResponse | null>(null);
   const [coachingLoading, setCoachingLoading] = useState(false);
   const [coachingError, setCoachingError] = useState("");
+  const [coachingLimitMessage, setCoachingLimitMessage] = useState("");
+  const [coachingEntitlements, setCoachingEntitlements] = useState<CoachingEntitlements | null>(null);
+  const [coachingEntitlementsError, setCoachingEntitlementsError] = useState("");
   const [coachingLine, setCoachingLine] = useState<CoachingLine | null>(null);
   const [coachingLineStartFen, setCoachingLineStartFen] = useState(STARTING_FEN);
   const [coachingLinePly, setCoachingLinePly] = useState(-1);
@@ -319,6 +351,7 @@ export default function GamePage() {
   const loadCoaching = useCallback(async (method: "GET" | "POST" = "GET") => {
     setCoachingLoading(true);
     setCoachingError("");
+    setCoachingLimitMessage("");
     setCoaching(null);
     try {
       if (method === "POST" && !user) {
@@ -331,9 +364,12 @@ export default function GamePage() {
       });
       if (!response.ok) {
         let message = `Server returned ${response.status}`;
+        let errorCode: string | undefined;
         try {
           const errorBody: unknown = await response.json();
           if (errorBody && typeof errorBody === "object") {
+            const body = errorBody as Record<string, unknown>;
+            errorCode = typeof body.code === "string" ? body.code : undefined;
             const responseMessage = ["message", "detail", "error"]
               .map((key) => (errorBody as Record<string, unknown>)[key])
               .find((value): value is string => typeof value === "string" && value.length > 0);
@@ -347,6 +383,10 @@ export default function GamePage() {
         if (response.status === 503 && isAnalysisInProgressMessage(message)) {
           message =
             "Coaching isn't ready yet — analysis may still be running, or the AI service is temporarily unavailable. Try again in a moment.";
+        }
+        if (response.status === 429 && errorCode === "DAILY_LIMIT_REACHED") {
+          setCoachingLimitMessage(message);
+          return;
         }
         throw new Error(message);
       }
@@ -366,6 +406,29 @@ export default function GamePage() {
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [loadCoaching]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/me/entitlements`, {
+      headers: { Authorization: `Bearer ${user.token}` },
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load coaching usage: ${response.status}`);
+        return response.json() as Promise<unknown>;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (!isCoachingEntitlements(data)) throw new Error("Server returned invalid coaching usage");
+        setCoachingEntitlements(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setCoachingEntitlementsError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -397,7 +460,8 @@ export default function GamePage() {
   }, [moves.length]);
 
   useEffect(() => {
-    setShowAlternative(false);
+    const timeoutId = window.setTimeout(() => setShowAlternative(false), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [selectedPly]);
 
   async function handleDelete() {
@@ -903,16 +967,33 @@ export default function GamePage() {
 
           <div className="mt-8 border-t border-hairline pt-4">
             <h2 className="mb-2 font-serif text-lg text-foreground">AI Coaching</h2>
-
-            {!coaching && !coachingLoading && (
-              <button
-                onClick={handleGetCoaching}
-                disabled={anyPending}
-                className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark disabled:opacity-50"
-              >
-                Get AI Coaching
-              </button>
+            {coachingEntitlements && (
+              <p className="mb-2 text-xs text-foreground/60">
+                {coachingEntitlements.coachingUsedToday}/{coachingEntitlements.dailyCoachingLimit} AI Coaching
+                sessions today
+              </p>
             )}
+            {coachingEntitlementsError && (
+              <p className="mb-2 text-xs text-foreground/60">Today's coaching usage is unavailable.</p>
+            )}
+
+            <div className="flex gap-2">
+              <Link
+                href={`/training?gameId=${encodeURIComponent(String(gameId))}`}
+                className="border border-board px-4 py-2 text-sm font-medium text-board hover:bg-board/10"
+              >
+                Train these mistakes
+              </Link>
+              {!coaching && !coachingLoading && (
+                <button
+                  onClick={handleGetCoaching}
+                  disabled={anyPending}
+                  className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark disabled:opacity-50"
+                >
+                  Get AI Coaching
+                </button>
+              )}
+            </div>
             {coachingLoading && (
               <p className="text-sm italic text-foreground/60">
                 Generating coaching insights — this can take a few minutes on first run…
@@ -926,6 +1007,7 @@ export default function GamePage() {
                 </button>
               </div>
             )}
+            {coachingLimitMessage && <p className="text-sm text-foreground/70">{coachingLimitMessage}</p>}
 
             {coaching && (
               <div className="w-full max-w-[400px] space-y-4 text-sm">
@@ -1068,7 +1150,7 @@ export default function GamePage() {
           )}
           {!coaching && (
             <p className="mb-3 text-xs italic text-foreground/40">
-              Click "Get AI Coaching" to see a "Why?" explanation on flagged moves below.
+              Click &quot;Get AI Coaching&quot; to see a &quot;Why?&quot; explanation on flagged moves below.
             </p>
           )}
 
