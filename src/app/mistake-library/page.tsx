@@ -18,7 +18,6 @@ type MistakeEntry = {
   plyNumber: number;
   fenBefore: string;
   playerMove: string;
-  bestMoveUci: string;
   classification: Classification;
   gamePhase: Phase;
   patternTag: PatternTag;
@@ -68,10 +67,6 @@ function formatCpLoss(cp: number): string {
   return `${cp} cp lost`;
 }
 
-function bestMoveSquares(uci: string): { from: string; to: string } {
-  return { from: uci.slice(0, 2), to: uci.slice(2, 4) };
-}
-
 function isPatternTag(value: string | null): value is PatternTag {
   return value === "MISSED_MATE" || value === "ALLOWED_MATE" || value === "HANGING_PIECE" || value === "POSITIONAL";
 }
@@ -91,8 +86,6 @@ function MistakeCard({
   token: string | null;
   onAuthRequired: () => void;
 }) {
-  const { from: bestFrom, to: bestTo } = bestMoveSquares(entry.bestMoveUci);
-
   return (
     <div className="border border-hairline p-4">
       <div className="mb-2 flex items-center justify-between text-xs">
@@ -114,7 +107,6 @@ function MistakeCard({
 
       <RetryBoard
         fenBefore={entry.fenBefore}
-        bestMoveUci={entry.bestMoveUci}
         gameId={entry.gameId}
         plyNumber={entry.plyNumber}
         token={token}
@@ -129,8 +121,7 @@ function MistakeCard({
       {!isRetryActive && (
         <>
           <p className="mt-1 text-sm text-foreground">
-            You played: <span className="font-mono">{entry.playerMove}</span> · Better:{" "}
-            <span className="font-mono">{bestFrom} → {bestTo}</span>
+            You played: <span className="font-mono">{entry.playerMove}</span>
           </p>
           <p className="mt-1 text-xs text-foreground/60">{PATTERN_EXPLANATIONS[entry.patternTag]}</p>
         </>
