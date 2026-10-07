@@ -53,6 +53,58 @@ body {
   transition: background-color 180ms ease, color 180ms ease;
 }
 
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid;
+  border-radius: 0.2rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.result-badge-mark {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.8;
+}
+
+.result-badge-won {
+  border-color: color-mix(in srgb, var(--board) 48%, transparent);
+  background: color-mix(in srgb, var(--board) 8%, var(--background));
+  color: var(--board);
+}
+
+.result-badge-lost {
+  border-color: color-mix(in srgb, #9b4d3b 48%, transparent);
+  background: color-mix(in srgb, #9b4d3b 7%, var(--background));
+  color: #9b4d3b;
+}
+
+.result-badge-draw {
+  border-color: color-mix(in srgb, var(--brass) 58%, transparent);
+  background: color-mix(in srgb, var(--brass) 8%, var(--background));
+  color: #8a6848;
+}
+
+[data-theme="dark"] .result-badge-won {
+  color: #9dbca5;
+}
+
+[data-theme="dark"] .result-badge-lost {
+  color: #d58f7e;
+}
+
+[data-theme="dark"] .result-badge-draw {
+  color: #d5ad73;
+}
+
 [data-theme="dark"] {
   color-scheme: dark;
 }
