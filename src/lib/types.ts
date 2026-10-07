@@ -12,4 +12,8 @@ export type Game = {
   result: string;
   uploadedAt: string;
   timeControl: string | null;
+  /** Populated by the list-summary endpoint once the game has been coached. */
+  aiCoached?: boolean;
+  whiteAccuracy?: number | null;
+  blackAccuracy?: number | null;
 };
