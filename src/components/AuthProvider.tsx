@@ -20,6 +20,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedUser = getAuth();
     if (!storedUser) return;
 
+    // Hydrate the auth context from browser storage on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUser(storedUser);
 
     fetch(`${API_BASE_URL}/api/users/me`, {
