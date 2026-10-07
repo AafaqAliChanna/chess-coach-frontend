@@ -158,6 +158,7 @@ function MistakeLibraryContent() {
   useEffect(() => {
     const paramPattern = searchParams.get("pattern");
     if (isPatternTag(paramPattern)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTagFilter(paramPattern);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -165,6 +166,7 @@ function MistakeLibraryContent() {
 
   useEffect(() => {
     if (!playerName) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOffset(0);
     setActiveKey(null);
     fetchLibrary(0, true);
@@ -240,8 +242,8 @@ function MistakeLibraryContent() {
 
       {notDeployed ? (
         <p className="max-w-md border border-hairline bg-brass/10 p-4 text-sm text-foreground">
-          This feature is waiting on a backend update — the Mistake Library endpoint isn't deployed yet.
-          Check back once it's live.
+          This feature is waiting on a backend update — the Mistake Library endpoint isn&apos;t deployed yet.
+          Check back once it&apos;s live.
         </p>
       ) : (
         <>
