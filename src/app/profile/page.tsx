@@ -40,6 +40,7 @@ export default function ProfilePage() {
   }, [user, router]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPlayerNameState(user?.playerName ?? "");
   }, [user?.playerName]);
 
@@ -145,7 +146,7 @@ export default function ProfilePage() {
       </div>
 
       <p className="mt-6 text-xs text-foreground/40">
-        Games aren't linked to your account yet — that's coming once the backend adds ownership. The player name
+        Games aren&apos;t linked to your account yet — that&apos;s coming once the backend adds ownership. The player name
         above is stored on your account.
       </p>
     </div>
