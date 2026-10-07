@@ -100,6 +100,7 @@ export default function ProgressPage() {
 
   useEffect(() => {
     if (!playerName) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError("");
     const query = windowSize === "all" ? "" : `?window=${windowSize}`;
@@ -182,7 +183,7 @@ export default function ProgressPage() {
     <div className="px-8 py-12">
       <h1 className="mb-1 font-serif text-3xl text-foreground">Progress</h1>
       <p className="mb-6 text-sm text-foreground/60">
-        Based on your {data.gamesIncluded} most recently analyzed games as "{playerName}".
+        Based on your {data.gamesIncluded} most recently analyzed games as &quot;{playerName}&quot;.
         {data.gamesStillAnalyzing > 0 && ` ${data.gamesStillAnalyzing} more game(s) still analyzing.`}
       </p>
 
@@ -308,8 +309,8 @@ export default function ProgressPage() {
       {positionalCount > 0 && (
         <div className="mb-10 border border-hairline p-4 opacity-60">
           <p className="text-sm text-foreground">
-            {positionalCount} additional mistake(s) this window didn't match a specific detectable pattern — no rule
-            caught a mechanical cause, so there's no trend to show for these specifically.{" "}
+            {positionalCount} additional mistake(s) this window didn&apos;t match a specific detectable pattern — no rule
+            caught a mechanical cause, so there&apos;s no trend to show for these specifically.{" "}
             <Link href="/mistake-library?pattern=POSITIONAL" className="text-board hover:underline">
               Review them →
             </Link>
