@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
@@ -78,7 +78,7 @@ function playerNameForColor(entry: MistakeEntry, color: "White" | "Black"): stri
   return color === "White" ? entry.whitePlayer : entry.blackPlayer;
 }
 
-export default function TrainingPage() {
+function TrainingPageContent() {
   const { user } = useAuth();
   const playerName = user?.playerName ?? null;
   const router = useRouter();
@@ -94,7 +94,6 @@ export default function TrainingPage() {
   const [historyExercises, setHistoryExercises] = useState<MistakeEntry[]>([]);
   const [session, setSession] = useState<SessionExerciseResult[]>([]);
   const [index, setIndex] = useState(0);
-  const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
@@ -120,6 +119,7 @@ export default function TrainingPage() {
           setStage("not-deployed");
           return null;
         }
+
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
         return res.json() as Promise<TrainingExercise[]>;
       })
@@ -254,7 +254,6 @@ export default function TrainingPage() {
             <button
               key={tag}
               onClick={() => startSession(tag)}
-              disabled={sessionLoading}
               className={`flex items-center justify-between border p-4 text-left hover:bg-hairline/30 disabled:opacity-50 ${
                 i === 0 ? "border-board bg-board/5" : "border-hairline"
               }`}
@@ -268,7 +267,6 @@ export default function TrainingPage() {
           ))}
         </div>
 
-        {sessionLoading && <p className="mt-4 text-sm text-foreground/70">Building your session…</p>}
       </div>
     );
   }
@@ -424,4 +422,12 @@ export default function TrainingPage() {
   }
 
   return null;
+}
+
+export default function TrainingPage() {
+  return (
+    <Suspense fallback={<div className="px-8 py-12 text-foreground">Loading…</div>}>
+      <TrainingPageContent />
+    </Suspense>
+  );
 }
