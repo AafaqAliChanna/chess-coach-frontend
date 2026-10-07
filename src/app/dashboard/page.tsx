@@ -4,8 +4,20 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
+import { getAuth } from "@/lib/auth";
 import type { Game } from "@/lib/types";
 import PatternFocusCallout from "@/components/PatternFocusCallout";
+import RecommendedResources from "@/components/RecommendedResources";
+
+type DailyPuzzle = {
+  id: string;
+  fen: string;
+  setupMoveUci: string;
+  rating: number;
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  themes: string;
+  openingTags: string | null;
+};
 
 function computeRecord(games: Game[], name: string) {
   let wins = 0;
@@ -18,8 +30,13 @@ function computeRecord(games: Game[], name: string) {
     const isBlack = game.blackPlayer.toLowerCase() === lower;
     if (!isWhite && !isBlack) continue;
 
-    if (game.result === "1-0") isWhite ? wins++ : losses++;
-    else if (game.result === "0-1") isBlack ? wins++ : losses++;
+    if (game.result === "1-0") {
+      if (isWhite) wins++;
+      else losses++;
+    } else if (game.result === "0-1") {
+      if (isBlack) wins++;
+      else losses++;
+    }
     else if (game.result === "1/2-1/2") draws++;
   }
 
@@ -30,18 +47,35 @@ function computeRecord(games: Game[], name: string) {
 export default function DashboardPage() {
   const [games, setGames] = useState<Game[] | null>(null);
   const [error, setError] = useState("");
+  const [dailyPuzzle, setDailyPuzzle] = useState<DailyPuzzle | null>(null);
+  const [dailyPuzzleError, setDailyPuzzleError] = useState("");
   const { user } = useAuth();
   const playerName = user?.playerName ?? null;
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/games`)
+    const token = user?.token ?? getAuth()?.token;
+    if (!token) return;
+
+    fetch(`${API_BASE_URL}/api/games`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => {
         if (!res.ok) throw new Error(`Failed to load games: ${res.status}`);
         return res.json();
       })
       .then(setGames)
       .catch((err) => setError(err.message));
-  }, []);
+
+    fetch(`${API_BASE_URL}/api/puzzles/daily`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load Puzzle of the Day: ${res.status}`);
+        return res.json() as Promise<DailyPuzzle>;
+      })
+      .then(setDailyPuzzle)
+      .catch((err) => setDailyPuzzleError(err instanceof Error ? err.message : "Unable to load today's puzzle."));
+  }, [user]);
 
   if (error) return <p className="p-8 text-red-700">{error}</p>;
   if (!games) return <p className="p-8 text-foreground">Loading…</p>;
@@ -67,6 +101,30 @@ export default function DashboardPage() {
       )}
 
       <PatternFocusCallout playerName={playerName} />
+      <RecommendedResources playerName={playerName} />
+
+      <section className="mb-10 border border-hairline bg-board/5 p-5" aria-labelledby="daily-puzzle-heading">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="mb-1 text-xs uppercase tracking-wide text-foreground/50">Daily practice</p>
+            <h2 id="daily-puzzle-heading" className="font-serif text-xl text-foreground">Puzzle of the Day</h2>
+            <p className="mt-1 text-sm text-foreground/60">
+              A fresh position to sharpen your instincts. It does not use your daily puzzle allowance.
+            </p>
+          </div>
+          {dailyPuzzle ? (
+            <Link
+              href="/puzzles?daily=1"
+              onClick={() => window.sessionStorage.setItem("chess_coach_daily_puzzle", JSON.stringify(dailyPuzzle))}
+              className="bg-board px-4 py-2 text-sm font-medium text-white hover:bg-board-dark"
+            >
+              Solve today&apos;s puzzle
+            </Link>
+          ) : null}
+        </div>
+        {dailyPuzzleError && <p className="mt-3 text-sm text-red-700">{dailyPuzzleError}</p>}
+        {!dailyPuzzle && !dailyPuzzleError && <p className="mt-3 text-sm text-foreground/60">Loading today&apos;s puzzle…</p>}
+      </section>
 
       <div className="mb-10 grid grid-cols-3 gap-4">
         <div className="border border-hairline p-4">
