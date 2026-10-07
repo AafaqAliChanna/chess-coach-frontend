@@ -39,6 +39,11 @@ type AccuracyResponse = {
   }[];
 };
 
+type OpeningResponse = {
+  eco: string | null;
+  name: string | null;
+};
+
 type CoachingKeyMoment = { plyNumber: number; comment: string };
 type CoachingResponse = {
   strengths: string[];
@@ -56,6 +61,17 @@ type CoachingEntitlements = {
   dailyCoachingLimit: number;
   coachingUsedToday: number;
   coachingRemainingToday: number;
+  dailyAskCoachLimit: number;
+  askCoachUsedToday: number;
+  askCoachRemainingToday: number;
+};
+
+type AskCoachMode = "ANSWER" | "HINT";
+type AskCoachResponse = {
+  onTopic: boolean;
+  answer: string | null;
+  hint: string | null;
+  message: string | null;
 };
 
 function isCoachingResponse(value: unknown): value is CoachingResponse {
@@ -85,7 +101,21 @@ function isCoachingEntitlements(value: unknown): value is CoachingEntitlements {
     (response.plan === "FREE" || response.plan === "PRO" || response.plan === "ULTIMATE") &&
     typeof response.dailyCoachingLimit === "number" &&
     typeof response.coachingUsedToday === "number" &&
-    typeof response.coachingRemainingToday === "number"
+    typeof response.coachingRemainingToday === "number" &&
+    typeof response.dailyAskCoachLimit === "number" &&
+    typeof response.askCoachUsedToday === "number" &&
+    typeof response.askCoachRemainingToday === "number"
+  );
+}
+
+function isAskCoachResponse(value: unknown): value is AskCoachResponse {
+  if (!value || typeof value !== "object") return false;
+  const response = value as Record<string, unknown>;
+  return (
+    typeof response.onTopic === "boolean" &&
+    (typeof response.answer === "string" || response.answer === null) &&
+    (typeof response.hint === "string" || response.hint === null) &&
+    (typeof response.message === "string" || response.message === null)
   );
 }
 
@@ -228,6 +258,7 @@ export default function GamePage() {
   const [moves, setMoves] = useState<Move[]>([]);
   const [report, setReport] = useState<ReportEntry[]>([]);
   const [accuracy, setAccuracy] = useState<AccuracyResponse | null>(null);
+  const [opening, setOpening] = useState<OpeningResponse | null>(null);
   const [error, setError] = useState("");
   const [selectedPly, setSelectedPly] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -264,6 +295,13 @@ export default function GamePage() {
   const [coachingLinePly, setCoachingLinePly] = useState(-1);
   const [coachingLineLoading, setCoachingLineLoading] = useState(false);
   const [coachingLineError, setCoachingLineError] = useState("");
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askMode, setAskMode] = useState<AskCoachMode>("ANSWER");
+  const [askResponse, setAskResponse] = useState<AskCoachResponse | null>(null);
+  const [askResponseMode, setAskResponseMode] = useState<AskCoachMode>("ANSWER");
+  const [askLoading, setAskLoading] = useState(false);
+  const [askError, setAskError] = useState("");
+  const [askLimitMessage, setAskLimitMessage] = useState("");
 
   const [highlights, setHighlights] = useState<HighlightsResponse | null>(null);
   const [highlightsLoading, setHighlightsLoading] = useState(false);
@@ -291,6 +329,14 @@ export default function GamePage() {
         return res.json();
       })
       .then(setMoves)
+      .catch((err) => setError(err.message));
+
+    fetch(`${API_BASE_URL}/api/games/${gameId}/opening`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load opening: ${res.status}`);
+        return res.json() as Promise<OpeningResponse>;
+      })
+      .then(setOpening)
       .catch((err) => setError(err.message));
   }, [gameId]);
 
@@ -399,6 +445,78 @@ export default function GamePage() {
       setCoachingLoading(false);
     }
   }, [gameId, router, user]);
+
+  async function handleAskCoach() {
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    const question = askQuestion.trim();
+    if (!question || askLoading) return;
+
+    const fallbackPly = report.find((entry) => entry.classification !== "NONE" && entry.classification !== "PENDING")?.plyNumber;
+    const plyNumber = selectedPly >= 0 ? moves[selectedPly]?.plyNumber : fallbackPly ?? moves[0]?.plyNumber;
+    if (plyNumber === undefined) {
+      setAskError("Select a move before asking your coach.");
+      return;
+    }
+
+    setAskLoading(true);
+    setAskError("");
+    setAskLimitMessage("");
+    setAskResponse(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/games/${gameId}/ask`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ plyNumber, question, mode: askMode }),
+      });
+      let errorMessage = `Server returned ${response.status}`;
+      let errorCode: string | undefined;
+      if (!response.ok) {
+        try {
+          const errorBody: unknown = await response.json();
+          if (errorBody && typeof errorBody === "object") {
+            const body = errorBody as Record<string, unknown>;
+            errorCode = typeof body.code === "string" ? body.code : undefined;
+            if (typeof body.message === "string" && body.message.length > 0) errorMessage = body.message;
+          }
+        } catch {
+          // Keep the status-based fallback when the error body is not JSON.
+        }
+        if (response.status === 429 && errorCode === "DAILY_LIMIT_REACHED") {
+          setAskLimitMessage(errorMessage);
+          return;
+        }
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
+        throw new Error(errorMessage);
+      }
+      const data: unknown = await response.json();
+      if (!isAskCoachResponse(data)) throw new Error("Server returned an invalid Ask Coach response");
+      setAskResponse(data);
+      setAskResponseMode(askMode);
+      if (data.onTopic) {
+        const entitlementResponse = await fetch(`${API_BASE_URL}/api/me/entitlements`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+        if (entitlementResponse.ok) {
+          const entitlementData: unknown = await entitlementResponse.json();
+          if (isCoachingEntitlements(entitlementData)) setCoachingEntitlements(entitlementData);
+        }
+      }
+      setAskQuestion("");
+    } catch (err) {
+      setAskError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAskLoading(false);
+    }
+  }
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -651,6 +769,8 @@ export default function GamePage() {
     }
   }
 
+  // The effect intentionally invokes this async action when analysis becomes available.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   async function handleGetHighlights() {
     setHighlightsLoading(true);
     setHighlightsError("");
@@ -777,6 +897,14 @@ export default function GamePage() {
             {game.result}
             {game.timeControl && <> · {game.timeControl}</>} · {new Date(game.uploadedAt).toLocaleString()}
           </p>
+          {opening?.name ? (
+            <p className="mt-1 text-xs text-foreground/55">
+              Opening: {opening.name}
+              {opening.eco ? ` (${opening.eco})` : ""}
+            </p>
+          ) : opening && (
+            <p className="mt-1 text-xs text-foreground/40">Opening not identified</p>
+          )}
         </div>
         <div className="text-right">
           <div className="flex items-center justify-end gap-3">
@@ -883,12 +1011,12 @@ export default function GamePage() {
           )}
           {selectedPly >= 0 && classification && ["INACCURACY", "MISTAKE", "BLUNDER"].includes(classification) && !currentReportEntry?.bestMoveUci && (
             <p className="mt-2 text-xs text-foreground/40">
-              No alternative move available for this ply (this happens on move 1, which isn't evaluated).
+              No alternative move available for this ply (this happens on move 1, which isn&apos;t evaluated).
             </p>
           )}
           {showAlternative && (
             <p className="mt-2 text-xs text-foreground/50">
-              Position before the move — green arrow is the engine's suggestion instead of{" "}
+              Position before the move — green arrow is the engine&apos;s suggestion instead of{" "}
               <span className="font-mono">{moves[selectedPly]?.san}</span>.
             </p>
           )}
@@ -927,6 +1055,15 @@ export default function GamePage() {
 
           {!coachingLine && <div className="mt-4 flex gap-2">
             <button
+              onClick={() => { setIsPlaying(false); setSelectedPly(0); }}
+              disabled={moves.length === 0 || selectedPly <= 0}
+              className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
+              aria-label="Jump to first move"
+              title="Jump to first move"
+            >
+              |◀ First
+            </button>
+            <button
               onClick={() => { setIsPlaying(false); setSelectedPly((p) => Math.max(p - 1, -1)); }}
               disabled={selectedPly === -1}
               className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
@@ -946,6 +1083,15 @@ export default function GamePage() {
               className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
             >
               Next →
+            </button>
+            <button
+            onClick={() => { setIsPlaying(false); setSelectedPly(moves.length - 1); }}
+            disabled={moves.length === 0 || selectedPly >= moves.length - 1}
+            className="border border-hairline px-3 py-1 text-sm text-foreground hover:bg-hairline/30 disabled:opacity-30"
+            aria-label="Jump to last move"
+            title="Jump to last move"
+            >
+            Last ▶|
             </button>
             <button
               onClick={() => setBoardOrientation((orientation) => (orientation === "white" ? "black" : "white"))}
@@ -974,7 +1120,7 @@ export default function GamePage() {
               </p>
             )}
             {coachingEntitlementsError && (
-              <p className="mb-2 text-xs text-foreground/60">Today's coaching usage is unavailable.</p>
+              <p className="mb-2 text-xs text-foreground/60">Today&apos;s coaching usage is unavailable.</p>
             )}
 
             <div className="flex gap-2">
@@ -1083,7 +1229,7 @@ export default function GamePage() {
           <div className="mt-8 border-t border-hairline pt-4">
             <h2 className="mb-2 font-serif text-lg text-foreground">Game Highlights</h2>
             <p className="mb-2 text-xs text-foreground/50">
-              Chess.com-style Brilliant/Great move detection. This scans most of the game, so it's noticeably slower
+              Chess.com-style Brilliant/Great move detection. This scans most of the game, so it&apos;s noticeably slower
               than other analysis here — expect it to take a while, not a quick spinner.
             </p>
 
@@ -1117,7 +1263,7 @@ export default function GamePage() {
                   (of {highlights.totalMovesChecked} moves checked)
                 </p>
                 {highlights.highlights.length === 0 ? (
-                  <p className="text-foreground/50">No standout moves this game — still could've been solid throughout.</p>
+                  <p className="text-foreground/50">No standout moves this game — still could&apos;ve been solid throughout.</p>
                 ) : (
                   <ul className="space-y-1">
                     {highlights.highlights.map((h) => (
@@ -1145,6 +1291,64 @@ export default function GamePage() {
         </div>
 
         <div className="w-[280px] shrink-0">
+          <div className="mb-8 border border-board/30 bg-board/5 p-4">
+            <h2 className="mb-2 font-serif text-lg text-foreground">Ask My Coach</h2>
+            {coachingEntitlements && (
+              <p className="mb-3 text-xs text-foreground/60">
+                {coachingEntitlements.askCoachUsedToday}/{coachingEntitlements.dailyAskCoachLimit} questions today
+              </p>
+            )}
+            {coachingEntitlementsError && (
+              <p className="mb-3 text-xs text-foreground/60">Ask Coach usage is unavailable today.</p>
+            )}
+            <textarea
+              value={askQuestion}
+              onChange={(event) => setAskQuestion(event.target.value)}
+              placeholder="What should I do here?"
+              rows={3}
+              disabled={askLoading}
+              className="w-full resize-y border border-hairline bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-board disabled:opacity-60"
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                onClick={() => setAskMode("ANSWER")}
+                disabled={askLoading}
+                className={`border px-3 py-1.5 text-xs ${askMode === "ANSWER" ? "border-board bg-board text-white" : "border-hairline text-foreground hover:bg-hairline/30"}`}
+              >
+                Get Answer
+              </button>
+              <button
+                onClick={() => setAskMode("HINT")}
+                disabled={askLoading}
+                className={`border px-3 py-1.5 text-xs ${askMode === "HINT" ? "border-board bg-board text-white" : "border-hairline text-foreground hover:bg-hairline/30"}`}
+              >
+                Get Hint
+              </button>
+              <button
+                onClick={() => void handleAskCoach()}
+                disabled={askLoading || !askQuestion.trim()}
+                className="ml-auto bg-board px-4 py-1.5 text-xs font-medium text-white hover:bg-board-dark disabled:opacity-50"
+              >
+                {askLoading ? "Thinking…" : "Ask Coach"}
+              </button>
+            </div>
+            {askLoading && <p className="mt-3 text-sm italic text-foreground/60">Your coach is thinking…</p>}
+            {askError && <p className="mt-3 text-sm text-red-700">{askError}</p>}
+            {askLimitMessage && <p className="mt-3 text-sm text-foreground/70">{askLimitMessage}</p>}
+            {askResponse && !askResponse.onTopic && (
+              <p className="mt-3 border-l-2 border-foreground/25 pl-3 text-sm text-foreground/70">{askResponse.message}</p>
+            )}
+            {askResponse?.onTopic && askResponseMode === "ANSWER" && askResponse.answer && (
+              <div className="mt-3 border-l-2 border-board pl-3 text-sm text-foreground">{askResponse.answer}</div>
+            )}
+            {askResponse?.onTopic && askResponseMode === "HINT" && askResponse.hint && (
+              <div className="mt-3 border-l-2 border-amber-500 bg-amber-50/60 p-3 text-sm text-foreground">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-amber-700">💡 Hint</p>
+                {askResponse.hint}
+              </div>
+            )}
+          </div>
+
           {anyPending && (
             <p className="mb-3 text-sm italic text-foreground/50">Analysis in progress — updating automatically…</p>
           )}
