@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -204,15 +205,15 @@ export default function Home() {
             </p>
             {importResult.gamesFoundForTimeClass === 0 && (
               <p className="mt-1 text-xs text-foreground/50">
-                Zero games found — double-check the username's exact spelling/case, the time class matches what you
+                Zero games found — double-check the username&apos;s exact spelling/case, the time class matches what you
                 actually played, and that the account has games in its history.
               </p>
             )}
             {importResult.imported > 0 && (
               <p className="mt-1">
-                <a href="/games" className="text-board underline">
+                <Link href="/games" className="text-board underline">
                   View your games
-                </a>{" "}
+                </Link>{" "}
                 — analysis is still running in the background for new ones.
               </p>
             )}
@@ -233,7 +234,7 @@ export default function Home() {
 
       <h1 className="mb-1 font-serif text-3xl text-foreground">Upload a game</h1>
       <p className="mb-8 text-sm text-foreground/60">
-        Paste a PGN below. We'll parse it and queue it for Stockfish analysis.
+        Paste a PGN below. We&apos;ll parse it and queue it for Stockfish analysis.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
