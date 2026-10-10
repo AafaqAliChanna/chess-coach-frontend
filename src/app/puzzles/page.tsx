@@ -35,6 +35,23 @@ type Entitlements = {
   puzzlesRemainingToday: number;
 };
 
+// GET /api/puzzles/rating. Not to be confused with `Puzzle.rating`, which is the
+// puzzle's own difficulty rating.
+type PlayerRating = {
+  rating: number;
+  ratedPuzzles: number;
+  wins: number;
+  losses: number;
+  provisional: boolean;
+};
+
+// Outcome of the one rated attempt on a puzzle (ratingChange/newRating from
+// POST /api/puzzles/{id}/moves). Null whenever the backend did not rate the move.
+type RatingResult = {
+  change: number;
+  newRating: number;
+};
+
 type ReviewMove = {
   uci: string;
   position: string;
@@ -115,6 +132,17 @@ function applyUciToFen(fen: string, uci: string): string {
   return [nextBoard, turn, "-", "-", halfmove, fullmove].join(" ");
 }
 
+function RatingResultLine({ result }: { result: RatingResult }) {
+  const gained = result.change >= 0;
+  const sign = gained ? "+" : "-";
+  return (
+    <p className={`text-sm font-medium ${gained ? "text-board" : "text-amber-700"}`}>
+      Rating: {sign}
+      {Math.abs(result.change)} {"\u2192"} {result.newRating}
+    </p>
+  );
+}
+
 function parseErrorMessage(body: unknown, fallback: string): string {
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
@@ -178,6 +206,8 @@ export default function PuzzlesPage() {
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [solved, setSolved] = useState<SolvedPuzzle[]>([]);
   const [solvedLoaded, setSolvedLoaded] = useState(false);
+  const [playerRating, setPlayerRating] = useState<PlayerRating | null>(null);
+  const [ratingResult, setRatingResult] = useState<RatingResult | null>(null);
 
   const authorizedFetch = useCallback(async (path: string, init?: RequestInit) => {
     const auth = getAuth();
@@ -210,6 +240,17 @@ export default function PuzzlesPage() {
     }
   }, [authorizedFetch]);
 
+  const loadPlayerRating = useCallback(async () => {
+    try {
+      const response = await authorizedFetch("/api/puzzles/rating");
+      if (!response.ok) throw new Error(`Failed to load puzzle rating: ${response.status}`);
+      setPlayerRating((await response.json()) as PlayerRating);
+    } catch {
+      // The rating is a nicety; if it can't load, hide it rather than break the page.
+      setPlayerRating(null);
+    }
+  }, [authorizedFetch]);
+
   const loadSolved = useCallback(async () => {
     try {
       const response = await authorizedFetch("/api/puzzles/solved");
@@ -235,6 +276,7 @@ export default function PuzzlesPage() {
     setReviewMoves([{ uci: puzzleData.setupMoveUci, position: positionAfterSetup }]);
     setReviewIndex(null);
     setStatus("idle");
+    setRatingResult(null);
     setShowHint(false);
     setSetupAnimating(true);
     window.setTimeout(() => {
@@ -430,6 +472,19 @@ export default function PuzzlesPage() {
           throw new Error(parseErrorMessage(body, "Unable to submit that move."));
         }
 
+        // Only the first outcome on a puzzle is rated, so ratingChange/newRating are
+        // non-null on exactly one call. Anything else clears the result so a retry
+        // never shows a stale rating line.
+        if (typeof body.ratingChange === "number" && typeof body.newRating === "number") {
+          const newRating: number = body.newRating;
+          setRatingResult({ change: body.ratingChange, newRating });
+          setPlayerRating((current) =>
+            current ? { ...current, rating: newRating, ratedPuzzles: current.ratedPuzzles + 1 } : current
+          );
+        } else {
+          setRatingResult(null);
+        }
+
         if (!body.correct) {
           setStatus("try-again");
           return;
@@ -484,6 +539,11 @@ export default function PuzzlesPage() {
   }, [loadEntitlements]);
 
   useEffect(() => {
+    const timeout = window.setTimeout(() => void loadPlayerRating(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadPlayerRating]);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => void loadDiscovery(), 0);
     return () => window.clearTimeout(timeout);
   }, [loadDiscovery]);
@@ -517,6 +577,7 @@ export default function PuzzlesPage() {
     setReviewMoves([]);
     setReviewIndex(null);
     setStatus("idle");
+    setRatingResult(null);
     setShowHint(false);
     setError("");
   }
@@ -529,6 +590,7 @@ export default function PuzzlesPage() {
     setReviewMoves([reviewMoves[0]]);
     setReviewIndex(null);
     setStatus("idle");
+    setRatingResult(null);
     setError("");
   }
 
@@ -561,6 +623,24 @@ export default function PuzzlesPage() {
         <div>
           <h1 className="font-serif text-3xl text-foreground">Puzzles</h1>
           <p className="mt-1 text-sm text-foreground/60">Practice tactical positions and build your solving streak.</p>
+          <div className="mt-2 flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">
+            {playerRating && (
+              <>
+                <p className="text-sm text-foreground/60">
+                  Puzzle rating{" "}
+                  <span className="font-serif text-xl text-foreground">{playerRating.rating}</span>
+                </p>
+                {playerRating.provisional && (
+                  <span className="border border-hairline px-1.5 py-0.5 text-xs uppercase tracking-wide text-foreground/60">
+                    Provisional
+                  </span>
+                )}
+                <span className="text-xs text-foreground/50">
+                  {playerRating.ratedPuzzles} rated {playerRating.ratedPuzzles === 1 ? "puzzle" : "puzzles"}
+                </span>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex border-b border-hairline">
           {(["solve", "solved"] as const).map((item) => (
@@ -712,9 +792,16 @@ export default function PuzzlesPage() {
                     <button type="button" onClick={retryPuzzle} className="border border-hairline px-3 py-1.5 text-sm text-foreground">Try again</button>
                   </div>
                 )}
+                {status === "try-again" && ratingResult && (
+                  <div className="space-y-1">
+                    <RatingResultLine result={ratingResult} />
+                    <p className="text-xs text-foreground/50">Rating is based on your first attempt.</p>
+                  </div>
+                )}
                 {status === "success" && (
                   <div className="space-y-3">
                     <p className="font-medium text-board">Puzzle solved! Great work.</p>
+                    {ratingResult && <RatingResultLine result={ratingResult} />}
                     <div className="border border-hairline p-3">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <p className="text-xs uppercase tracking-wide text-foreground/50">Review moves</p>
