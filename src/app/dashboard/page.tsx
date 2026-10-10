@@ -8,6 +8,7 @@ import { getAuth } from "@/lib/auth";
 import type { Game } from "@/lib/types";
 import PatternFocusCallout from "@/components/PatternFocusCallout";
 import RecommendedResources from "@/components/RecommendedResources";
+import DailyCheckInCard from "@/components/DailyCheckInCard";
 
 type DailyPuzzle = {
   id: string;
@@ -89,6 +90,7 @@ export default function DashboardPage() {
     <div className="px-8 py-12">
       <h1 className="mb-1 font-serif text-3xl text-foreground">Dashboard</h1>
       <p className="mb-8 text-sm text-foreground/60">Good to see you back.</p>
+      <DailyCheckInCard />
 
       {!playerName && (
         <p className="mb-8 border border-hairline bg-brass/10 p-3 text-sm text-foreground">
